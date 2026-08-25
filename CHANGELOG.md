@@ -1,0 +1,74 @@
+# Changelog
+
+All notable changes to this project will be documented in this file.
+
+The format is based on
+[Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
+and this project adheres to
+[Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+
+## [Unreleased]
+
+## [0.1.0] - 2026-08-26
+
+First release. The API may still change before 1.0.0.
+
+The optional net and MQTT modules require NetworkProfile >= 0.7.0; the network
+status page additionally requires NetworkManager >= 0.3.0. A build that includes
+none of them has neither dependency.
+
+### Added
+
+- Web configuration portal for ESP32 and ESP8266, built on ESPAsyncWebServer:
+  HTTP digest authentication, a menu assembled from the registered pages, and a
+  Status page reporting uptime, heap (including a fragmentation indicator), chip,
+  clock and reset reason.
+- Built-in Other page: OTA firmware update, restart, factory reset, and password
+  change. The OTA path validates an embedded `FirmwareMarker` and rejects an
+  image built for a different project or board rather than bricking the device.
+- Backup page assembled from per-component sections, with restore validated as a
+  whole document before anything is written, so a mangled file changes nothing.
+- Composition API for project-specific content — `addPage()`,
+  `addJsonEndpoint()`, `addPostHandler()`, `addBackupSection()`,
+  `addResetHandler()`, `addUploadHandler()`, and for content that lives in flash
+  `sendProgmem()`, `sendProgmemLine()` and `beginStreamed()` — plus shared
+  client-side field builders (`ifRow`, `numRow`, `selectRow`) served at
+  `/fields.js`, the same ones the built-in pages use.
+- `NetConfigComponent`: an optional, opt-in network-configuration page for the
+  NetworkProfile family — addressing, DNS, hostname, interface priority, Wi-Fi
+  credentials and transmit power. Including it is what pulls in the dependency;
+  a build that never includes it has none.
+
+  `setNtpProfile()` adds a Time group for the NTP servers, edited once from a
+  device-level `NtpProfile` rather than repeated per interface; not calling it
+  leaves the group off the page. The servers are saved and restored with the
+  rest of the page, which is what the backup file means to whoever downloads it:
+  the settings this page shows. `NetChangeSet::ntp` reports that they changed,
+  separately from the interface flags, since the manager applies them on the
+  next connect whichever interface that is.
+- `MqttConfigComponent`: an optional, opt-in page for MQTT broker settings —
+  address, port, TLS and credentials, stored in an `MqttProfile`. It owns no MQTT
+  client: it saves and reports what changed, and the application decides what to
+  do about it, since the client is the application's.
+- `NetStatusComponent`: an optional, opt-in read-only page showing the live link
+  — interface, addressing, DNS, NTP, and on Wi-Fi the associated network and
+  signal — read from NetworkManager rather than from the stored configuration,
+  because the two can differ and that difference is the point. Open without a
+  login by default. `addSection()` lets the application add its own rows, so the
+  page can report a service it knows nothing about.
+- `setCss()` / `setCssExtra()` restyle the whole portal, the built-in pages
+  included; `docs/CSS.md` documents the class contract. Runtime rather than
+  compile-time, because the handler that serves `/css` is in the library's own
+  translation unit, where a sketch's `#define` never arrives.
+- Configurable logging through `setLogger()`, with a per-subsystem tag that maps
+  directly onto `ESP_LOGx`.
+- Three fixed-size registries, each overridable before including the header:
+  `CONFIG_PORTAL_MAX_PAGES` (16), `CONFIG_PORTAL_MAX_BACKUP_SECTIONS` (4) and
+  `CONFIG_PORTAL_MAX_RESET_HANDLERS` (4). They are small on purpose — the arrays
+  are members of the server object — and each `add*()` returns false rather than
+  overwriting when its registry is full.
+- Examples: `Minimal`, `CustomPage` (composing your own page, hardware-free) and
+  `NetConfig` (two interfaces with priority-based failover).
+
+[Unreleased]: https://github.com/soosp/AsyncConfigPortal/compare/0.1.0...HEAD
+[0.1.0]: https://github.com/soosp/AsyncConfigPortal/releases/tag/0.1.0

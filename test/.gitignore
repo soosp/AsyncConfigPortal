@@ -1,0 +1,5 @@
+# Built host-test binaries
+json_harness
+json_harness_san
+*.exe
+*.o
