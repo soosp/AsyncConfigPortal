@@ -541,6 +541,17 @@ void setup() {
         if (changed.any()) {
             Serial.println(F("net: configuration changed - restarting shortly"));
             s_restartPending.store(true);
+
+            // The other policy: re-apply without rebooting. requestApply() only
+            // sets a flag, so it is safe from here — this callback runs on the
+            // async server's task, where NetworkManager::applyProfile() would do
+            // the stop()/start() on the wrong one. Which of the two fits is the
+            // application's call: a restart is the simpler guarantee, an apply
+            // keeps whatever else the device was doing alive.
+            //
+            //   using IF = NetworkProfile::InterfaceType;
+            //   if (changed.changed(IF::ETH))  ethAdapter.requestApply();
+            //   if (changed.changed(IF::WIFI)) wifiAdapter.requestApply();
         } else {
             Serial.println(F("net: submit with no changes - ignoring"));
         }
