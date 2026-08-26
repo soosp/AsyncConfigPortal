@@ -198,6 +198,18 @@ mqtt.attach(web, AsyncConfigPortal::MENU_NET - 1, "MQTT", /*withBackup=*/true);
 Neither owns a client or a connection: they save, and report what changed. What
 to do about it is the application's call, since the client belongs to it.
 
+#### Reaching a wired device that has no address anyone knows
+
+A Network page is only useful if the device can be reached in the first place,
+which is not a given on a wired network with no DHCP server. `examples/EthConfigButton`
+covers the two situations that occur: an unconfigured device — new, or factory
+reset — settles on a fixed address when no DHCP answers, and a deployed one stays
+on whatever it was given until somebody presses a button, which moves it to that
+same address for the length of the visit.
+
+Neither address is ever saved, so a reset always returns to the stored
+configuration, and the only way into the configured state is saving on this page.
+
 ### Net status
 
 Read-only, and open by default — checking a signal level is the sort of thing one

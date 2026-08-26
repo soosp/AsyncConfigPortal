@@ -67,8 +67,11 @@ none of them has neither dependency.
   `CONFIG_PORTAL_MAX_RESET_HANDLERS` (4). They are small on purpose — the arrays
   are members of the server object — and each `add*()` returns false rather than
   overwriting when its registry is full.
-- Examples: `Minimal`, `CustomPage` (composing your own page, hardware-free) and
-  `NetConfig` (two interfaces with priority-based failover).
+- Examples: `Minimal`, `CustomPage` (composing your own page, hardware-free),
+  `NetConfig` (two interfaces with priority-based failover) and
+  `EthConfigButton` (reaching a wired device that has no address anyone knows:
+  an unconfigured one settles on a fixed address when no DHCP answers, and a
+  deployed one moves to it on a button press).
 
 [Unreleased]: https://github.com/soosp/AsyncConfigPortal/compare/0.1.0...HEAD
 [0.1.0]: https://github.com/soosp/AsyncConfigPortal/releases/tag/0.1.0
