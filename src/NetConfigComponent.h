@@ -734,9 +734,10 @@ private:
      * saveCfg() already used to persist: the component never touches NVS
      * itself, so the profile stays the only thing that knows how it is stored.
      *
-     * Every profile is attempted even after one fails. Stopping early would
-     * leave a device that is neither configured nor default, which is harder to
-     * reason about than one where the failure is named in the log.
+     * Every namespace is attempted even after one fails, the NTP one included.
+     * Stopping early would leave a device that is neither configured nor
+     * default, which is harder to reason about than one where the failure is
+     * named in the log.
      */
     bool _factoryReset() {
         bool ok = true;
@@ -747,6 +748,16 @@ private:
                   PSTR("profile %u: could not erase namespace \"%s\""),
                   (unsigned)i, _entries[i].ns);
         }
+#if NTP_PROFILE_ENABLED
+        // The Time group saves into its own namespace, so erasing the interface
+        // profiles alone would leave a reset device still synchronising from
+        // whatever servers it was given.
+        if (_ntp && _ntpNs && !_ntp->clearCfg(_ntpNs)) {
+            ok = false;
+            _logf(AsyncConfigPortal::LogLevel::Error,
+                  PSTR("could not erase NTP namespace \"%s\""), _ntpNs);
+        }
+#endif
         return ok;
     }
 

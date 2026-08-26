@@ -137,6 +137,14 @@ public:
             [this](AsyncWebServerRequest* req) { _save(req); },
             AsyncConfigPortal::AuthLevel::Required) && ok;
 
+        // A factory reset has to reach this namespace too. Without it the page
+        // would be blank after a reset while the broker's address and the
+        // credentials for it stayed in flash — the same secret this component
+        // keeps out of the backup file for travelling.
+        ok = srv.addResetHandler("mqtt", [this]() {
+            return _profile->clearCfg(_ns);
+        }) && ok;
+
         if (withBackup) {
             // POST, not GET: the Backup page submits a form so the download
             // carries the session, and a plain link would not.
