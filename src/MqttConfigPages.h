@@ -69,6 +69,20 @@ function build(o) {
   h += ifRow('', 'Password', 'pass', '', o.hasPassword ? '(unchanged)' : '',
              {type: 'password', title: 'Leave empty to keep the stored password'});
   h += '</div>';
+
+  // Home Assistant discovery, only when the project asked for the row. It sits
+  // inside mqttfields so it dims with the rest when MQTT is switched off: it is
+  // a layer on top of the connection, not an alternative to it.
+  if (o.withHaDiscovery) {
+    h += '<div class="row"><span class="label"><label for="hadisc">'
+       + 'Home Assistant discovery</label></span>'
+       + '<span class="value"><input type="checkbox" id="hadisc" name="hadisc"'
+       + (o.haDiscovery ? ' checked' : '') + '></span></div>'
+       + '<div class="hint">Publishes retained discovery messages so Home '
+       + 'Assistant creates the entities by itself. Switching it off clears '
+       + 'them again.</div>';
+  }
+
   h += '</div></div>';
 
   ID('mqttform').innerHTML = h;

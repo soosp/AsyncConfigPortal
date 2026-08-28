@@ -58,6 +58,18 @@
 
 #include <AsyncConfigPortal.h>
 #include <MqttProfile.h>
+
+// The withHaDiscovery switch writes MqttConfig::haDiscovery, which arrived in
+// NetworkProfile 0.8.0. This library declares no dependency on the profile
+// family on purpose — the network and MQTT modules are opt-in, and a manifest
+// entry would force the profiles on every project that only wants the portal.
+// With library.json unable to express the constraint, the check belongs here.
+// An undefined macro is 0 in #if, so this also catches the releases from before
+// NetworkProfileVersion.h existed.
+#if !defined(NETWORK_PROFILE_VERSION) || NETWORK_PROFILE_VERSION < 800
+#  error "MqttConfigComponent needs NetworkProfile 0.8.0 or newer (MqttConfig::haDiscovery)"
+#endif
+
 #include "JsonReadUtils.h"
 #include "detail/upload_claim.h"
 
@@ -72,9 +84,13 @@ public:
         bool connection = false;
         /// MQTT was switched on or off.
         bool enabled    = false;
+        /// Home Assistant discovery was switched on or off. Turning it off is
+        /// not a no-op for the application: the retained discovery messages
+        /// have to be cleared, or the entities linger in Home Assistant.
+        bool haDiscovery = false;
 
         /// @return true if anything changed at all.
-        bool any() const { return connection || enabled; }
+        bool any() const { return connection || enabled || haDiscovery; }
     };
 
     /** @brief Called after a successful save. */
@@ -114,10 +130,12 @@ public:
      *                   without the other.
      */
     bool attach(AsyncConfigPortal& srv,
-                int8_t      order      = AsyncConfigPortal::MENU_NET - 1,
-                const char* label      = "MQTT",
-                bool        withBackup = false) {
-        _srv = &srv;
+                int8_t      order           = AsyncConfigPortal::MENU_NET - 1,
+                const char* label           = "MQTT",
+                bool        withBackup      = false,
+                bool        withHaDiscovery = false) {
+        _srv             = &srv;
+        _withHaDiscovery = withHaDiscovery;
         if (!_profile) {
             // Registering a page that cannot read or write anything would look
             // like a working feature. Saying so is the smaller surprise.
@@ -192,7 +210,7 @@ private:
     static constexpr size_t RESTORE_LEN =
           Host::MAX_FQDN_SIZE            // host
         + MqttProfile::MAX_USER_SIZE     // user
-        + 128;                           // keys, punctuation, port, flags
+        + 160;                           // keys, punctuation, port, flags
     /// How long a stalled upload keeps the buffer before another may take it.
     static constexpr uint32_t RESTORE_IDLE_MS = 10000;
 
@@ -200,6 +218,10 @@ private:
     AsyncConfigPortal* _srv     = nullptr;
     const char*        _ns      = nullptr;
     SavedFn            _onSaved;
+    /// Whether the page offers the Home Assistant discovery switch at all.
+    /// Off by default: a project with no discovery publisher should not show a
+    /// control that does nothing.
+    bool               _withHaDiscovery = false;
 
     /// The form's data. The password is never sent — only whether one is stored,
     /// so the field can say "(unchanged)" instead of pretending to be empty.
@@ -229,6 +251,15 @@ private:
         ok = ok && json_cat_esc(buf, c.user, len);
         ok = ok && json_cat_P(buf, PSTR("\",\"hasPassword\":"), len);
         ok = ok && json_cat_P(buf, c.password[0] ? PSTR("true") : PSTR("false"), len);
+
+        // withHaDiscovery says whether to draw the row; haDiscovery is its
+        // state. The page needs both: a row that is not drawn must not look
+        // like an unticked one.
+        ok = ok && json_cat_P(buf, PSTR(",\"withHaDiscovery\":"), len);
+        ok = ok && json_cat_P(buf, _withHaDiscovery ? PSTR("true") : PSTR("false"), len);
+        ok = ok && json_cat_P(buf, PSTR(",\"haDiscovery\":"), len);
+        ok = ok && json_cat_P(buf, c.haDiscovery ? PSTR("true") : PSTR("false"), len);
+
         ok = ok && json_cat_P(buf, PSTR("}"), len);
         return ok;
     }
@@ -268,6 +299,12 @@ private:
         // a browser reports one, so its absence carries meaning here.
         c.enabled = req->hasParam("enabled", true);
         c.tls     = req->hasParam("tls", true);
+
+        // Only when the row exists. An absent checkbox means unticked, and the
+        // row is absent from every submission when the feature is not offered —
+        // reading it unconditionally would quietly clear a flag the project set
+        // for itself.
+        if (_withHaDiscovery) c.haDiscovery = req->hasParam("hadisc", true);
 
         _str(req, "host", c.host, sizeof(c.host));
 
@@ -312,16 +349,18 @@ private:
         }
 
         Changed ch;
-        ch.enabled    = (c.enabled != before.enabled);
+        ch.enabled     = (c.enabled != before.enabled);
+        ch.haDiscovery = (c.haDiscovery != before.haDiscovery);
         ch.connection = strcmp(c.host, before.host) != 0
                      || c.port != before.port
                      || c.tls  != before.tls
                      || strcmp(c.user, before.user) != 0
                      || strcmp(c.password, before.password) != 0;
         _srv->logf(AsyncConfigPortal::LogLevel::Info, "mqtt",
-                   PSTR("saved%s%s"),
-                   ch.enabled    ? ", enabled state changed" : "",
-                   ch.connection ? ", connection settings changed" : "");
+                   PSTR("saved%s%s%s"),
+                   ch.enabled     ? ", enabled state changed" : "",
+                   ch.connection  ? ", connection settings changed" : "",
+                   ch.haDiscovery ? ", HA discovery changed" : "");
 
         AsyncConfigPortal::sendProgmem(req, 200, "text/html",
                                        CONFIG_PORTAL_SAVED_HTML);
@@ -392,6 +431,10 @@ private:
         if (jsonHas(doc, "tls")) {
             char b[8];
             if (jsonVal(doc, "tls", b, sizeof(b)) > 0) c.tls = (b[0] == 't');
+        }
+        if (jsonHas(doc, "haDiscovery")) {
+            char b[8];
+            if (jsonVal(doc, "haDiscovery", b, sizeof(b)) > 0) c.haDiscovery = (b[0] == 't');
         }
         jsonVal(doc, "host", c.host, sizeof(c.host));
         jsonVal(doc, "user", c.user, sizeof(c.user));

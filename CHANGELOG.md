@@ -9,6 +9,24 @@ and this project adheres to
 
 ## [Unreleased]
 
+### Added
+
+- `MqttConfigComponent::attach()` takes a `withHaDiscovery` flag, symmetric with
+  `withBackup`, which adds a Home Assistant discovery switch to the MQTT page.
+  Off by default. `Changed` gains a matching `haDiscovery` bit, because turning
+  discovery off is not a no-op for the application: the retained discovery
+  messages have to be cleared or the entities linger in Home Assistant. The
+  field is only read from a submission when the row is offered — an absent
+  checkbox means unticked, so reading it unconditionally would quietly clear a
+  flag the project had set for itself.
+- `MqttConfigComponent` requires **NetworkProfile 0.8.0 or newer** and says so
+  with an `#error` rather than failing deep inside a header. This library
+  declares no dependency on the profile family on purpose — the network and MQTT
+  modules are opt-in, and a manifest entry would force the profiles on every
+  project that only wants the portal — so `library.json` cannot express the
+  constraint and the check is a compile-time guard on
+  `NETWORK_PROFILE_VERSION`.
+
 ## [0.1.0] - 2026-08-26
 
 First release. The API may still change before 1.0.0.
