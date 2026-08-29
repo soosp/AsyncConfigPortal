@@ -9,6 +9,8 @@ and this project adheres to
 
 ## [Unreleased]
 
+## [0.2.1] - 2026-08-29
+
 ### Fixed
 
 - The deferred restart on ESP8266 now runs from the cont context rather than
@@ -104,6 +106,7 @@ none of them has neither dependency.
   an unconfigured one settles on a fixed address when no DHCP answers, and a
   deployed one moves to it on a button press).
 
-[Unreleased]: https://github.com/soosp/AsyncConfigPortal/compare/0.2.0...HEAD
+[Unreleased]: https://github.com/soosp/AsyncConfigPortal/compare/0.2.1...HEAD
+[0.2.1]: https://github.com/soosp/AsyncConfigPortal/compare/0.2.0...0.2.1
 [0.2.0]: https://github.com/soosp/AsyncConfigPortal/compare/0.1.0...0.2.0
 [0.1.0]: https://github.com/soosp/AsyncConfigPortal/releases/tag/0.1.0
