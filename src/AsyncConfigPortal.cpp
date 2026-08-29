@@ -61,7 +61,11 @@ bool AsyncConfigPortal::addPage(const char* path, const char* label,
                               const char* html, AuthLevel auth, int8_t order) {
     // Serve the HTML body (optionally auth-gated).
     _server.on(path, HTTP_GET, [this, html, auth](AsyncWebServerRequest* req) {
+        // Authentication first, always: a 304 is still an answer, and letting a
+        // conditional request short-circuit the check would hand the page's
+        // existence — and its cacheability — to anyone who guessed the URL.
         if (auth == AuthLevel::Required && !requireAuth(req)) return;
+        if (cacheHit(req)) return;
         sendProgmem(req, 200, "text/html", html);
     });
 
@@ -403,6 +407,7 @@ void AsyncConfigPortal::logf(LogLevel level, const char* tag,
 void AsyncConfigPortal::_registerSystemRoutes() {
     // Shared CSS.
     _server.on("/css", HTTP_GET, [this](AsyncWebServerRequest* req) {
+        if (cacheHit(req)) return;
         // Both come from members, not macros: this file is a separate
         // translation unit, so a stylesheet named in a sketch is not visible
         // here. The supplement, if any, follows the sheet — later rules win, so
@@ -414,6 +419,7 @@ void AsyncConfigPortal::_registerSystemRoutes() {
     // Shared JavaScript (menu, project, auth-state helpers). Browser-cached,
     // so pages include it via <script src="/common.js"> instead of inlining.
     _server.on("/common.js", HTTP_GET, [](AsyncWebServerRequest* req) {
+        if (cacheHit(req)) return;
         sendProgmem(req, 200, "application/javascript", CONFIG_PORTAL_COMMON_JS);
     });
 
@@ -421,6 +427,7 @@ void AsyncConfigPortal::_registerSystemRoutes() {
     // so it is a separate script rather than part of /common.js. A standalone
     // portal can reuse this same asset without the runtime.
     _server.on("/fields.js", HTTP_GET, [](AsyncWebServerRequest* req) {
+        if (cacheHit(req)) return;
         sendProgmem(req, 200, "application/javascript", CONFIG_PORTAL_FIELDS_JS);
     });
 

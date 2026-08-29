@@ -9,6 +9,32 @@ and this project adheres to
 
 ## [Unreleased]
 
+### Added
+
+- Static assets and pages carry an `ETag` derived from `FIRMWARE_VERSION`, with
+  `Cache-Control: no-cache`, and answer a matching `If-None-Match` with a bare
+  304.
+
+  This is a memory measure before it is a bandwidth one. A page is not one
+  request: the browser fetches the HTML, the stylesheet, one or two scripts, the
+  menu, the project block and whatever data the page polls — six or seven at
+  once, each with its own request object, response object and chunk buffer. On
+  an ESP8266 that peak was measured at about 12 kB for a plain status page,
+  which is most of what remains once Wi-Fi, the async server and an MQTT session
+  have taken theirs, and it is why a portal that loads at boot stops loading
+  later. Letting the browser keep the unchanging assets turns seven requests
+  into three or four.
+
+  The version is the right validator for a device: assets change when the
+  firmware changes and at no other time. It also closes the trap where an OTA
+  update leaves the browser showing the previous version's page, with a plain
+  reload not enough to shift it. `no-cache` rather than a `max-age` because the
+  browser must still ask — the answer is a 20-byte 304 instead of a 4 kB body,
+  and nothing stale survives an update.
+
+  Authentication is checked before the conditional request, so a 304 cannot
+  short-circuit it.
+
 ## [0.2.1] - 2026-08-29
 
 ### Fixed

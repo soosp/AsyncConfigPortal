@@ -7,6 +7,7 @@
 
 #include <ESPAsyncWebServer.h>
 #include <HttpDigestAuth.h>
+#include "FirmwareMarker.h"   // FIRMWARE_VERSION, the cache validator
 #if defined(ARDUINO_ARCH_ESP8266)
 #  include <Ticker.h>          // one-shot restart timer (no FreeRTOS on ESP8266)
 #  include <Schedule.h>        // hands the restart back to the cont context
@@ -426,6 +427,59 @@ public:
         req->send(r);
     }
 
+    /**
+     * @brief Answers a static asset from cache when the browser already has it.
+     *
+     * Call before sending; if it returns true the reply is already made.
+     *
+     * @section why Why this matters more than it looks
+     * A page is not one request. The browser fetches the HTML, the stylesheet,
+     * one or two scripts, the menu, the project block and whatever data the page
+     * polls — six or seven at once, each with its own request object, response
+     * object and chunk buffer. On an ESP8266 that peak was measured at about
+     * 12 kB for a plain status page, which is most of what is left once Wi-Fi,
+     * the async server and an MQTT session have taken theirs. It is why a page
+     * loads at boot and stops loading later.
+     *
+     * The assets that make up most of those requests — the stylesheet and the
+     * scripts — are identical for the lifetime of a firmware image. Letting the
+     * browser keep them turns seven requests into three or four, and the peak
+     * falls with it.
+     *
+     * @section version The tag is the firmware version
+     * Content hashing would be exact and needs the content in RAM to hash.
+     * FIRMWARE_VERSION is already known, costs nothing, and has the right
+     * semantics for a device: assets change when the firmware changes and at no
+     * other time. It also fixes the trap where an OTA update leaves the browser
+     * showing the previous version's page with no way to tell.
+     *
+     * `no-cache` rather than a max-age: the browser must ask, but the answer is
+     * a 20-byte 304 rather than a 4 kB body. A max-age would be faster still and
+     * would keep serving a stale asset after an update for as long as it lasted.
+     */
+    static bool cacheHit(AsyncWebServerRequest* req) {
+        char tag[16];
+        snprintf(tag, sizeof(tag), "\"%lu\"", (unsigned long)FIRMWARE_VERSION);
+
+        const AsyncWebHeader* h = req->getHeader("If-None-Match");
+        if (h && h->value() == tag) {
+            AsyncWebServerResponse* r = req->beginResponse(304);
+            r->addHeader("ETag", tag);
+            r->addHeader("Cache-Control", "no-cache");
+            req->send(r);
+            return true;
+        }
+        return false;
+    }
+
+    /// Adds the validator headers to a response about to be sent.
+    static void addCacheHeaders(AsyncWebServerResponse* r) {
+        char tag[16];
+        snprintf(tag, sizeof(tag), "\"%lu\"", (unsigned long)FIRMWARE_VERSION);
+        r->addHeader("ETag", tag);
+        r->addHeader("Cache-Control", "no-cache");
+    }
+
     static void sendProgmem(AsyncWebServerRequest* req, int code,
                             const char* type, const char* body) {
 #if defined(ARDUINO_ARCH_ESP8266)
@@ -442,9 +496,12 @@ public:
                 return n;
             });
         r->setCode(code);
+        if (code == 200) addCacheHeaders(r);
         req->send(r);
 #else
-        req->send(code, type, body);
+        AsyncWebServerResponse* r = req->beginResponse(code, type, body);
+        if (code == 200) addCacheHeaders(r);
+        req->send(r);
 #endif
     }
 
