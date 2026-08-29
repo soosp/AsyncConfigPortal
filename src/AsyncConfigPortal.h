@@ -9,6 +9,7 @@
 #include <HttpDigestAuth.h>
 #if defined(ARDUINO_ARCH_ESP8266)
 #  include <Ticker.h>          // one-shot restart timer (no FreeRTOS on ESP8266)
+#  include <Schedule.h>        // hands the restart back to the cont context
 #endif
 
 // Buffer capacities. Convention: the macro (and the *_LEN constant) is the

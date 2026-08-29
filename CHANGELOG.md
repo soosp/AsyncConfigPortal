@@ -11,6 +11,13 @@ and this project adheres to
 
 ### Fixed
 
+- The deferred restart on ESP8266 now runs from the cont context rather than
+  from the Ticker callback. `ESP.restart()` in the SYS context does not stop the
+  cont task, so the SDK began dismantling the network stack while `loop()` was
+  still using it; an application polling its network layer every pass reached a
+  freed `netif` and the reboot ended in a LoadProhibited exception. The Ticker
+  still provides the flush delay, but now hands the call to
+  `schedule_function()`.
 - Mark `run_tests.sh` executable
 
 ## [0.2.0] - 2026-08-28

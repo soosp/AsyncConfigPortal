@@ -545,7 +545,23 @@ void AsyncConfigPortal::_scheduleRestart() {
 #elif defined(ARDUINO_ARCH_ESP8266)
     // ESP8266 has no FreeRTOS: a one-shot Ticker fires the restart off the async
     // handler after the same flush delay.
-    _restartTicker.once_ms(CONFIG_PORTAL_RESTART_DELAY_MS, +[]() { ESP.restart(); });
+    //
+    // The Ticker runs in the SYS context, and ESP.restart() called from there
+    // does not stop the cont task: the SDK begins tearing the network stack down
+    // while loop() carries on using it. An application that polls its network
+    // layer every pass — as NetworkManager does — then reaches a netif the
+    // restart has already freed, and the reboot ends in a LoadProhibited
+    // exception instead of a clean one:
+    //
+    //     netif_remove <- eagle_lwip_if_free <- wifi_station_disconnect
+    //                  <- WiFi.disconnect() <- adapter stop <- loop()
+    //
+    // schedule_function() queues the call for the cont context, so it runs
+    // between two loop() passes with nothing else in flight. The delay still
+    // belongs to the Ticker: the response has to flush first.
+    _restartTicker.once_ms(CONFIG_PORTAL_RESTART_DELAY_MS, +[]() {
+        schedule_function([]() { ESP.restart(); });
+    });
 #endif
 }
 
