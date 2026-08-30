@@ -9,6 +9,24 @@ and this project adheres to
 
 ## [Unreleased]
 
+### Changed
+
+- `/menu` and `/project` are validated with the same `ETag` as the static
+  assets. Both are fixed once `begin()` has run — the menu is assembled from the
+  pages registered during setup, the project block is compile-time constants —
+  so the firmware version identifies them exactly.
+
+  It is not the size of either reply that costs. Every page load fetches both,
+  and on ESP8266 a concurrent request costs a request object, a response object
+  and a chunk buffer whatever it returns. With the stylesheet and scripts
+  already cached, these were two of the four requests a page still made; they
+  are now two 304s.
+
+  Measured need: with a TLS MQTT session holding about 6.5 kB, a device with
+  ~19.7 kB free after setup has ~13 kB for the web, against a page-load peak
+  near 12 kB. It fits until a second page is opened before the first has let
+  go, and then a 32-byte allocation fails.
+
 ## [0.4.1] - 2026-08-30
 
 ### Fixed

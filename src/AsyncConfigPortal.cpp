@@ -441,12 +441,21 @@ void AsyncConfigPortal::_registerSystemRoutes() {
     });
 
     // Dynamic menu (ordered by weight).
+    // Cacheable for the same reason the stylesheet is: the menu is assembled
+    // from the pages registered during setup and does not change afterwards, so
+    // a firmware version identifies it exactly. Worth doing because it is not
+    // the size of the reply that costs — every page load fetches this one, and
+    // on ESP8266 a concurrent request costs a request object, a response object
+    // and a chunk buffer whatever it returns.
     _server.on("/menu", HTTP_GET, [this](AsyncWebServerRequest* req) {
+        if (cacheHit(req)) return;
         _handleMenu(req);
     });
 
     // Project metadata.
+    // Compile-time constants, so the same argument applies with even less doubt.
     _server.on("/project", HTTP_GET, [this](AsyncWebServerRequest* req) {
+        if (cacheHit(req)) return;
         _handleProject(req);
     });
 
@@ -509,7 +518,9 @@ void AsyncConfigPortal::_handleMenu(AsyncWebServerRequest* req) const {
     }
     if (n < sizeof(json)) n += snprintf(json + n, sizeof(json) - n, "]");
 
-    req->send(200, "application/json", json);
+    AsyncWebServerResponse* r = req->beginResponse(200, "application/json", json);
+    addCacheHeaders(r);
+    req->send(r);
 }
 
 void AsyncConfigPortal::_handleProject(AsyncWebServerRequest* req) const {
@@ -518,7 +529,9 @@ void AsyncConfigPortal::_handleProject(AsyncWebServerRequest* req) const {
         PSTR("{\"project_name\":\"%s\",\"project_ver\":\"%s\","
         "\"project_desc\":\"%s\",\"project_year\":\"%s\",\"author\":\"%s\"}"),
         _projName, _projVer, _projDesc, _projYear, _projAuthor);
-    req->send(200, "application/json", json);
+    AsyncWebServerResponse* r = req->beginResponse(200, "application/json", json);
+    addCacheHeaders(r);
+    req->send(r);
 }
 
 void AsyncConfigPortal::_handleStatusData(AsyncWebServerRequest* req) const {
