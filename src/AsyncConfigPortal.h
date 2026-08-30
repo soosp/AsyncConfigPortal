@@ -490,6 +490,20 @@ public:
      * would keep serving a stale asset after an update for as long as it lasted.
      */
     static bool cacheHit(AsyncWebServerRequest* req) {
+        // A hard reload sends "Cache-Control: no-cache" — and, from Firefox,
+        // "Pragma: no-cache" as well. That is the client saying it does not want
+        // a validated copy, and RFC 9111 makes the request directive binding on
+        // the origin server, not only on caches in between. Answering 304 anyway
+        // is why Ctrl+Shift+R appeared to do nothing after a page changed.
+        //
+        // An ordinary reload sends neither, so it still gets its 304 and the
+        // saving that comes with it. The two cases stay distinguishable, which
+        // is the whole point of honouring the header.
+        const AsyncWebHeader* cc = req->getHeader("Cache-Control");
+        if (cc && cc->value().indexOf("no-cache") >= 0) return false;
+        const AsyncWebHeader* pr = req->getHeader("Pragma");
+        if (pr && pr->value().indexOf("no-cache") >= 0) return false;
+
         char tag[16];
         snprintf(tag, sizeof(tag), "\"%lu\"", (unsigned long)FIRMWARE_VERSION);
 

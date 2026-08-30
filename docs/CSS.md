@@ -38,6 +38,15 @@ look alike.
 
 Which of the two to pick, and what a replacement takes on, is the next section.
 
+## Seeing a change during development
+
+The validator is `FIRMWARE_VERSION`, so a page or stylesheet edited without
+bumping it revalidates to a 304 and the browser keeps what it had. A hard reload
+(Ctrl+Shift+R) works, because the server honours the `no-cache` the browser sends
+with it; an ordinary reload does not, and is not meant to. The alternatives are
+to bump the version, or to leave "Disable cache" ticked in the browser's network
+tools while working on a page.
+
 ## The tab icon
 
 `/favicon.ico` is registered whether or not there is an icon; with none it

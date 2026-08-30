@@ -9,6 +9,15 @@ and this project adheres to
 
 ## [Unreleased]
 
+### Fixed
+
+- A conditional request carrying `Cache-Control: no-cache` — or `Pragma:
+  no-cache`, which Firefox also sends — is answered with the resource rather
+  than a 304. RFC 9111 makes that request directive binding on the origin
+  server, not only on caches in between, and ignoring it meant a hard reload
+  did nothing after a page had changed without a version bump. An ordinary
+  reload still revalidates to a 304, so the saving is unaffected.
+
 ## [0.4.0] - 2026-08-30
 
 ### Added
