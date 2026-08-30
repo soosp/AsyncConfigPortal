@@ -434,8 +434,10 @@ void AsyncConfigPortal::_registerSystemRoutes() {
     // Favicon: deliberate placeholder. Returns 204 No Content so browsers get
     // a clean answer (no 404 noise) without embedding a binary icon. Projects
     // that want a real favicon can register their own /favicon.ico route.
-    _server.on("/favicon.ico", HTTP_GET, [](AsyncWebServerRequest* req) {
-        req->send(204);
+    _server.on("/favicon.ico", HTTP_GET, [this](AsyncWebServerRequest* req) {
+        if (!_favicon) { req->send(204); return; }   // nothing set: stay quiet
+        if (cacheHit(req)) return;
+        sendProgmem(req, 200, _faviconType, _favicon, _faviconLen);
     });
 
     // Dynamic menu (ordered by weight).

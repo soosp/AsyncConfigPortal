@@ -392,6 +392,38 @@ public:
     void setCssExtra(const char* css) { _cssExtra = css; }
 
     /**
+     * @brief Supplies the icon served at /favicon.ico.
+     *
+     * The route exists either way; with no icon set it answers 204, which stops
+     * the browser retrying and is all a portal strictly needs. This fills it in.
+     *
+     * A route rather than a data URI in each page's head. The head is per page,
+     * so a data URI is repeated in every one of them — and still leaves the
+     * library's own pages without an icon, since a project cannot reach into
+     * them. One endpoint covers every page, stores the bytes once, and carries
+     * the same ETag as the other static assets, so a browser fetches it once per
+     * firmware version.
+     *
+     * @param body PROGMEM. Must outlive the server.
+     * @param len  Length in bytes.
+     * @param type Content type. This is what decides how the browser reads the
+     *             body — not the ".ico" in the path — so an SVG served here
+     *             works everywhere that matters.
+     *
+     * SVG is usually the better choice on a device: a trefoil is a few hundred
+     * bytes of path data against several kilobytes for the equivalent PNG, and
+     * it scales to whatever size the browser asks for.
+     */
+    void setFavicon(const uint8_t* body, size_t len, const char* type) {
+        _favicon = body; _faviconLen = len; _faviconType = type;
+    }
+
+    /// Convenience for the usual case: a NUL-terminated PROGMEM SVG.
+    void setFavicon(const char* svg, const char* type = "image/svg+xml") {
+        setFavicon((const uint8_t*)svg, strlen_P(svg), type);
+    }
+
+    /**
      * @brief Serve a PROGMEM body safely on both platforms.
      *
      * On ESP8266 a plain send() would byte-read flash and fault (LoadStoreError),
@@ -480,17 +512,23 @@ public:
         r->addHeader("Cache-Control", "no-cache");
     }
 
+    /**
+     * @brief Sends a PROGMEM body of a known length.
+     *
+     * The overload below derives the length with strlen_P(), which is right for
+     * a page and wrong for anything binary: a PNG or an ICO ends at its first
+     * zero byte. Pass the length when the body is not text.
+     */
     static void sendProgmem(AsyncWebServerRequest* req, int code,
-                            const char* type, const char* body) {
+                            const char* type, const uint8_t* body, size_t len) {
 #if defined(ARDUINO_ARCH_ESP8266)
         // Stream straight out of flash. A plain send() would byte-read PROGMEM
         // and fault; buffering the page into a response stream would copy the
         // whole thing into RAM, and several assets loading at once exhaust the
         // heap. Chunked + memcpy_P costs only the TCP chunk.
-        const size_t total = strlen_P(body);
         AsyncWebServerResponse* r = req->beginChunkedResponse(type,
-            [body, total](uint8_t* dst, size_t maxLen, size_t index) -> size_t {
-                const size_t rem = total - index;
+            [body, len](uint8_t* dst, size_t maxLen, size_t index) -> size_t {
+                const size_t rem = len - index;
                 const size_t n = rem < maxLen ? rem : maxLen;
                 if (n) memcpy_P(dst, body + index, n);
                 return n;
@@ -499,10 +537,15 @@ public:
         if (code == 200) addCacheHeaders(r);
         req->send(r);
 #else
-        AsyncWebServerResponse* r = req->beginResponse(code, type, body);
+        AsyncWebServerResponse* r = req->beginResponse(code, type, body, len);
         if (code == 200) addCacheHeaders(r);
         req->send(r);
 #endif
+    }
+
+    static void sendProgmem(AsyncWebServerRequest* req, int code,
+                            const char* type, const char* body) {
+        sendProgmem(req, code, type, (const uint8_t*)body, strlen_P(body));
     }
 
     /**
@@ -806,6 +849,9 @@ private:
     /// the serving side resolves it instead, so this header stays independent.
     const char*     _css      = nullptr;
     const char*     _cssExtra = nullptr;             ///< appended after it
+    const uint8_t*  _favicon     = nullptr;         ///< null: /favicon.ico is 204
+    size_t          _faviconLen  = 0;
+    const char*     _faviconType = nullptr;
 #if defined(ARDUINO_ARCH_ESP8266)
     Ticker          _restartTicker;   // fires the deferred restart (see _scheduleRestart)
 #endif

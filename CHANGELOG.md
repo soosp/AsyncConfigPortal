@@ -9,6 +9,22 @@ and this project adheres to
 
 ## [Unreleased]
 
+### Added
+
+- `setFavicon()` supplies the icon served at `/favicon.ico`, which until now
+  always answered 204. Two forms: a NUL-terminated PROGMEM string, defaulting to
+  `image/svg+xml`, and a pointer with an explicit length and content type for
+  anything binary — a PNG or an ICO ends at its first zero byte if the length is
+  derived with `strlen_P()`.
+
+  A route rather than a data URI in each page's head, because the head is per
+  page: a data URI repeats in every one of them and still leaves the built-in
+  pages without an icon, which a project cannot reach into. The endpoint carries
+  the same ETag as the other static assets, so a browser fetches it once per
+  firmware version.
+- `sendProgmem()` overload taking an explicit length, for bodies that are not
+  NUL-terminated text. The existing form now delegates to it.
+
 ## [0.3.0] - 2026-08-30
 
 ### Added

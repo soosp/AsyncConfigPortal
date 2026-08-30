@@ -38,6 +38,32 @@ look alike.
 
 Which of the two to pick, and what a replacement takes on, is the next section.
 
+## The tab icon
+
+`/favicon.ico` is registered whether or not there is an icon; with none it
+answers 204, which stops the browser retrying. `setFavicon()` fills it in:
+
+```cpp
+static const char MY_ICON[] PROGMEM = R"SVG(<svg …</svg>)SVG";
+
+web.setFavicon(MY_ICON);                       // image/svg+xml
+web.setFavicon(ICO_BYTES, sizeof(ICO_BYTES),   // or anything else
+               "image/x-icon");
+```
+
+The content type is what decides how the browser reads the body, not the `.ico`
+in the path, so an SVG served here works. SVG is usually the better choice on a
+device: a few hundred bytes of path data against several kilobytes for the
+equivalent PNG, and it scales to whatever size is asked for. The length-taking
+form exists because a binary body ends at its first zero byte if the length is
+derived with `strlen_P()`.
+
+A `<link rel="icon">` data URI in a page's head is the alternative, and a worse
+one here: the head is per page, so it repeats in every one of them and still
+leaves the built-in pages without an icon. The endpoint stores the bytes once,
+covers every page, and carries the same ETag as the other static assets, so a
+browser fetches it once per firmware version.
+
 ## Which one to use
 
 Use the **supplement** for anything short of a complete stylesheet, and a **full
