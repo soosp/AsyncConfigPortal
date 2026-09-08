@@ -9,6 +9,11 @@ and this project adheres to
 
 ## [Unreleased]
 
+### Fixed
+
+- In the case of multi-core processors, the word "core" should be written in the
+  plural form.
+
 ## [0.4.2] - 2026-08-30
 
 ### Changed
