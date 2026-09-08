@@ -9,6 +9,8 @@ and this project adheres to
 
 ## [Unreleased]
 
+## [0.4.3] - 2026-09-08
+
 ### Fixed
 
 - In the case of multi-core processors, the word "core" should be written in the
@@ -188,7 +190,8 @@ none of them has neither dependency.
   an unconfigured one settles on a fixed address when no DHCP answers, and a
   deployed one moves to it on a button press).
 
-[Unreleased]: https://github.com/soosp/AsyncConfigPortal/compare/0.4.2...HEAD
+[Unreleased]: https://github.com/soosp/AsyncConfigPortal/compare/0.4.3...HEAD
+[0.4.3]: https://github.com/soosp/AsyncConfigPortal/compare/0.4.2...0.4.3
 [0.4.2]: https://github.com/soosp/AsyncConfigPortal/compare/0.4.1...0.4.2
 [0.4.1]: https://github.com/soosp/AsyncConfigPortal/compare/0.4.0...0.4.1
 [0.4.0]: https://github.com/soosp/AsyncConfigPortal/compare/0.3.0...0.4.0
