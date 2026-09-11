@@ -478,17 +478,48 @@ public:
      * browser keep them turns seven requests into three or four, and the peak
      * falls with it.
      *
-     * @section version The tag is the firmware version
+     * @section version The tag is the firmware version, or a build stamp
      * Content hashing would be exact and needs the content in RAM to hash.
      * FIRMWARE_VERSION is already known, costs nothing, and has the right
-     * semantics for a device: assets change when the firmware changes and at no
-     * other time. It also fixes the trap where an OTA update leaves the browser
-     * showing the previous version's page with no way to tell.
+     * semantics for a released device: assets change when the firmware changes
+     * and at no other time. It also fixes the trap where an OTA update leaves
+     * the browser showing the previous version's page with no way to tell.
+     *
+     * During development the version does not move between builds, and a page
+     * added to the menu is then invisible to a browser that holds the old one
+     * — a hard reload does not help, because the menu is fetched by script,
+     * outside the reload's no-cache scope. setCacheTag() lets the application
+     * supply a value that changes with every build instead:
+     * @code
+     * web.setCacheTag(AsyncConfigPortal::cacheTagOf(__DATE__ " " __TIME__));
+     * @endcode
+     * The stamp comes from the application's own translation unit, which is
+     * recompiled whenever a page or a component header it includes changes —
+     * a build flag would change every build and force a full rebuild each time.
      *
      * `no-cache` rather than a max-age: the browser must ask, but the answer is
      * a 20-byte 304 rather than a 4 kB body. A max-age would be faster still and
      * would keep serving a stale asset after an update for as long as it lasted.
      */
+    /**
+     * @brief Replaces FIRMWARE_VERSION as the ETag with a value of the
+     *        application's choosing — typically a build stamp, see above.
+     *        Call before begin(). Static, like the validator it feeds: one
+     *        tag per firmware, however many portals it runs.
+     */
+    static void setCacheTag(uint32_t tag) { _cacheTag() = tag; }
+
+    /** @brief The tag in effect: FIRMWARE_VERSION unless setCacheTag() ran. */
+    static uint32_t cacheTag() { return _cacheTag(); }
+
+    /**
+     * @brief FNV-1a hash of a string, for turning a build stamp into a tag.
+     *        constexpr, so `cacheTagOf(__DATE__ " " __TIME__)` is a constant.
+     */
+    static constexpr uint32_t cacheTagOf(const char* s, uint32_t h = 2166136261u) {
+        return *s ? cacheTagOf(s + 1, (h ^ static_cast<uint8_t>(*s)) * 16777619u) : h;
+    }
+
     static bool cacheHit(AsyncWebServerRequest* req) {
         // A hard reload sends "Cache-Control: no-cache" — and, from Firefox,
         // "Pragma: no-cache" as well. That is the client saying it does not want
@@ -505,7 +536,7 @@ public:
         if (pr && pr->value().indexOf("no-cache") >= 0) return false;
 
         char tag[16];
-        snprintf(tag, sizeof(tag), "\"%lu\"", (unsigned long)FIRMWARE_VERSION);
+        snprintf(tag, sizeof(tag), "\"%lu\"", (unsigned long)cacheTag());
 
         const AsyncWebHeader* h = req->getHeader("If-None-Match");
         if (h && h->value() == tag) {
@@ -518,10 +549,14 @@ public:
         return false;
     }
 
+    /// Storage for the tag. A function-local static keeps this header-only
+    /// and gives one instance per firmware, which is what an ETag is.
+    static uint32_t& _cacheTag() { static uint32_t t = FIRMWARE_VERSION; return t; }
+
     /// Adds the validator headers to a response about to be sent.
     static void addCacheHeaders(AsyncWebServerResponse* r) {
         char tag[16];
-        snprintf(tag, sizeof(tag), "\"%lu\"", (unsigned long)FIRMWARE_VERSION);
+        snprintf(tag, sizeof(tag), "\"%lu\"", (unsigned long)cacheTag());
         r->addHeader("ETag", tag);
         r->addHeader("Cache-Control", "no-cache");
     }

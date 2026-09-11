@@ -9,6 +9,16 @@ and this project adheres to
 
 ## [Unreleased]
 
+### Added
+
+- `setCacheTag(uint32_t)` and the constexpr `cacheTagOf(const char*)`: the
+  ETag the portal validates its assets and the `/menu` document against can
+  now be a build stamp rather than `FIRMWARE_VERSION`. During development the
+  version does not move between builds, so a page added to the menu stayed
+  invisible to a browser holding the old one — and a hard reload does not
+  reach a script-fetched `/menu`. `cacheTagOf(__DATE__ " " __TIME__)` from
+  the application's own translation unit changes exactly when its pages can.
+
 ## [0.5.0] - 2026-09-12
 
 ### Added
