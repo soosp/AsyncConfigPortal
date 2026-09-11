@@ -9,6 +9,14 @@ and this project adheres to
 
 ## [Unreleased]
 
+### Added
+
+- `SyslogConfigComponent` (+ `SyslogConfigPages.h`): an opt-in page editing a
+  `SyslogProfile` — server, port, severity floor, facility — with the same
+  `setProfile`/`onSaved`/`attach` shape as the MQTT page, a factory-reset hook
+  for its namespace, and an optional Backup section (no secrets, so the
+  restore needs no extra controls). Requires NetworkProfile 0.9.0.
+
 ## [0.4.3] - 2026-09-08
 
 ### Fixed

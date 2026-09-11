@@ -138,7 +138,7 @@ page. Nothing here needs configuring — it is what you will see:
 
 ## Optional modules
 
-Three ready-made pages ship with the library. Each is **header-only** and
+Four ready-made pages ship with the library. Each is **header-only** and
 **opt-in**: including it is what pulls in the library it needs, and a build that
 never includes it has that dependency at all.
 
@@ -146,9 +146,10 @@ never includes it has that dependency at all.
 |---|---|---|
 |`<NetConfigComponent.h>`|Network — addressing, DNS, hostname, Wi-Fi, and the NTP servers|NetworkProfile (`NtpProfile` for the Time group, which needs `NTP_PROFILE_ENABLED`)|
 |`<MqttConfigComponent.h>`|MQTT — broker, port, TLS, credentials|NetworkProfile (`MqttProfile`)|
+|`<SyslogConfigComponent.h>`|Syslog — server, port, severity floor, facility|NetworkProfile (`SyslogProfile`, 0.9.0+)|
 |`<NetStatusComponent.h>`|Net status — the live link, read-only|NetworkManager|
 
-They share the same shape, so knowing one is knowing all three:
+They share the same shape, so knowing one is knowing all four:
 
 ```cpp
 component.attach(web, order, label /*, component-specific */);   // returns bool
@@ -193,10 +194,18 @@ mqtt.onSaved([](const MqttConfigComponent::Changed& c) {
     if (c.connection) ESP.restart();        // the client is built from these
 });
 mqtt.attach(web, AsyncConfigPortal::MENU_NET - 1, "MQTT", /*withBackup=*/true);
+
+syslogPage.setProfile(syslogProfile, "syslog");
+syslogPage.onSaved([](const SyslogConfigComponent::Changed& c) {
+    applySyslog();                          // re-read the profile into the sender, in place
+});
+syslogPage.attach(web, AsyncConfigPortal::MENU_NET - 2, "Syslog", /*withBackup=*/true);
 ```
 
-Neither owns a client or a connection: they save, and report what changed. What
-to do about it is the application's call, since the client belongs to it.
+None of them owns a client or a connection: they save, and report what changed.
+What to do about it is the application's call, since the client belongs to it —
+a restart for an MQTT client that was built from the settings, an in-place
+re-read for a syslog sender, which holds no connection.
 
 #### Reaching a wired device that has no address anyone knows
 
