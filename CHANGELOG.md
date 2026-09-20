@@ -9,6 +9,22 @@ and this project adheres to
 
 ## [Unreleased]
 
+### Fixed
+
+- `sendProgmemLine()` no longer calls `send_P()`, which on ESP8266 forwards to
+  the deprecated `beginResponse_P()` — and that overload's deprecation attribute
+  has no platform guard, so the correct ESP8266 call warned from inside
+  ESPAsyncWebServer's own header.
+
+  The pointer-and-length overload of `beginResponse()` replaces it on both
+  platforms: it builds an `AsyncProgmemResponse`, which fills its buffer with
+  `memcpy_P` and so reads flash correctly on ESP8266 and ordinary memory on
+  ESP32. The platform split in this function is gone.
+
+  Not the `char*` overload, which without a template callback builds an
+  `AsyncBasicResponse` that byte-reads the pointer and would fault on a flash
+  address.
+
 ## [0.5.1] - 2026-09-12
 
 ### Added

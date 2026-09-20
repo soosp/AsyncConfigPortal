@@ -604,22 +604,26 @@ public:
      * needs and more machinery than a one-line message deserves. This is the
      * short form.
      *
-     * The platform split is settled here rather than at every call site.
-     * ESP8266 needs send_P() to read the body out of flash; on ESP32 flash is
-     * memory-mapped, plain send() reads it directly, and send_P() is marked
-     * deprecated — so writing send_P() everywhere would warn on one platform
-     * and writing send() would fault on the other.
+     * No platform split is needed, which is worth stating because the obvious
+     * spelling does need one. send_P() forwards to beginResponse_P() on
+     * ESP8266, and that overload carries a deprecation attribute with no
+     * platform guard, so the correct ESP8266 call warns from inside the
+     * library's own header.
+     *
+     * The pointer-and-length overload of beginResponse() avoids it entirely: it
+     * builds an AsyncProgmemResponse, which fills its buffer with memcpy_P and
+     * so reads flash correctly on ESP8266 and ordinary memory on ESP32. The
+     * char* overload is not a substitute — without a template callback it
+     * builds an AsyncBasicResponse instead, which byte-reads the pointer and
+     * faults on a flash address.
      *
      * @param body PROGMEM string, i.e. a PSTR() literal. A RAM string sent
      *             through here would be read as a flash address on ESP8266.
      */
     static void sendProgmemLine(AsyncWebServerRequest* req, int code,
                                 const char* type, PGM_P body) {
-#if defined(ARDUINO_ARCH_ESP8266)
-        req->send_P(code, type, body);
-#else
-        req->send(code, type, body);
-#endif
+        req->send(req->beginResponse(code, type,
+                                     (const uint8_t*)body, strlen_P(body)));
     }
 
     /**
