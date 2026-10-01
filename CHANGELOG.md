@@ -9,6 +9,8 @@ and this project adheres to
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-10-01
+
 ### Added
 
 - `MQTT_CONFIG_TLS` (default 1) controls whether the MQTT page offers TLS at
@@ -253,7 +255,8 @@ none of them has neither dependency.
   an unconfigured one settles on a fixed address when no DHCP answers, and a
   deployed one moves to it on a button press).
 
-[Unreleased]: https://github.com/soosp/AsyncConfigPortal/compare/0.5.2...HEAD
+[Unreleased]: https://github.com/soosp/AsyncConfigPortal/compare/0.6.0...HEAD
+[0.6.0]: https://github.com/soosp/AsyncConfigPortal/compare/0.5.2...0.6.0
 [0.5.2]: https://github.com/soosp/AsyncConfigPortal/compare/0.5.1...0.5.2
 [0.5.1]: https://github.com/soosp/AsyncConfigPortal/compare/0.5.0...0.5.1
 [0.5.0]: https://github.com/soosp/AsyncConfigPortal/compare/0.4.3...0.5.0
