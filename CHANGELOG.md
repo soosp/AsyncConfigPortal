@@ -9,6 +9,29 @@ and this project adheres to
 
 ## [Unreleased]
 
+### Added
+
+- `MQTT_CONFIG_TLS` (default 1) controls whether the MQTT page offers TLS at
+  all. With it off the row is gone, the port hint stops mentioning 8883, and a
+  submitted `tls` parameter is ignored — a stored flag is left as it is rather
+  than cleared, so a project that later builds TLS back in finds it intact.
+
+  A compile-time macro rather than an `attach()` parameter like
+  `withHaDiscovery`, and the difference is not stylistic: that flag hides a form
+  row, this one has to agree with whether the application instantiated a secure
+  client at all. A runtime bool could disagree with the build, leaving the page
+  offering TLS the firmware cannot open and a user believing a connection is
+  encrypted when it is not.
+
+  Worth considering on ESP8266 for a reason larger than the existing warning
+  suggests. Constructing a `WiFiClientSecure` calls `stack_thunk_add_ref()`,
+  which reserves BearSSL's call stack from the heap at construction, not at
+  connect — so a global instance costs about 6.8 kB from boot whether or not a
+  secured connection is ever opened, and it lands mid-heap, halving the largest
+  free block. Measured on one firmware by removing a secure client it never
+  used: boot heap 25.0 kB to 31.8 kB, largest block at MQTT connect 11.8 kB to
+  24.8 kB.
+
 ## [0.5.2] - 2026-09-20
 
 ### Fixed

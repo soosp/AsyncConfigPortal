@@ -73,6 +73,39 @@
 #include "JsonReadUtils.h"
 #include "detail/upload_claim.h"
 
+/**
+ * @brief Whether the page offers TLS at all. 1 by default.
+ *
+ * A compile-time switch rather than an attach() parameter like the Home
+ * Assistant discovery flag, and the difference is not stylistic. That flag
+ * hides a form row; this one has to agree with whether the application
+ * instantiated a secure client at all, which is a decision the compiler makes.
+ * A runtime bool could disagree with the build — the page offering TLS the
+ * firmware cannot open — and a user would believe a connection is encrypted
+ * when it is not. One name, checked in both places, cannot drift.
+ *
+ * Defined before MqttConfigPages.h because the page tests it.
+ *
+ * Left on by default, so existing builds are unaffected. Projects on ESP8266
+ * should consider turning it off, and the reason is larger than the warning
+ * above suggests: constructing a WiFiClientSecure calls stack_thunk_add_ref(),
+ * which reserves BearSSL's call stack from the heap at construction — not at
+ * connect. A global instance costs about 6.8 kB from boot whether or not a
+ * secured connection is ever opened, and it lands in the middle of the heap,
+ * halving the largest free block.
+ *
+ * Measured on one ESP8266 firmware by removing a secure client it never used:
+ * boot heap 25.0 kB to 31.8 kB, largest block at MQTT connect 11.8 kB to
+ * 24.8 kB.
+ *
+ * With it off the page shows no TLS row and a submitted `tls` parameter is
+ * ignored. A stored flag is left as it is rather than cleared, so a project
+ * that later builds TLS back in finds the setting intact.
+ */
+#ifndef MQTT_CONFIG_TLS
+#  define MQTT_CONFIG_TLS 1
+#endif
+
 #include "MqttConfigPages.h"
 
 class MqttConfigComponent {
@@ -298,7 +331,12 @@ private:
         // A checkbox absent from the body means unticked — that is the only way
         // a browser reports one, so its absence carries meaning here.
         c.enabled = req->hasParam("enabled", true);
+#if MQTT_CONFIG_TLS
         c.tls     = req->hasParam("tls", true);
+#endif
+        // With MQTT_CONFIG_TLS off the row is absent from every submission, so
+        // reading it would clear a flag the user never saw — the same reasoning
+        // as the discovery switch below.
 
         // Only when the row exists. An absent checkbox means unticked, and the
         // row is absent from every submission when the feature is not offered —

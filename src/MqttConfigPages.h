@@ -48,6 +48,9 @@ function build(o) {
   h += '<div id="mqttfields">';
   h += ifRow('', 'Host', 'host', o.host, 'broker.example.org',
              {host: true, title: 'Broker host name or IP address'});
+)HTML"
+#if MQTT_CONFIG_TLS
+R"HTML(
   h += numRow('', 'Port', 'port', o.port, 1, 65535, 1,
               'Usually 1883, or 8883 with TLS');
   h += '<div class="row"><span class="label"><label for="tls">TLS</label></span>'
@@ -55,6 +58,13 @@ function build(o) {
      + (o.tls ? ' checked' : '') + '></span></div>'
      + '<div class="hint">Changing this takes effect after a restart: the client '
      + 'is built once, for one kind of connection.</div>';
+)HTML"
+#else
+R"HTML(
+  h += numRow('', 'Port', 'port', o.port, 1, 65535, 1, 'Usually 1883');
+)HTML"
+#endif
+R"HTML(
   // Authentication is a switch of its own rather than "leave the username
   // empty": the two credential fields disappear with it, so the page says at a
   // glance whether the broker is being connected to anonymously.

@@ -135,6 +135,21 @@ page. Nothing here needs configuring — it is what you will see:
   `NTP_PROFILE_SERVER_COUNT` (1 to 3) grows the largest buffer, so raise them
   only
   as far as the device actually needs.
+- `-DMQTT_CONFIG_TLS=0` removes TLS from the MQTT page: no row, no mention of
+  8883 in the port hint, and a submitted `tls` parameter ignored. A stored flag
+  is left alone, not cleared.
+
+  The point is not the page. On ESP8266, constructing a `WiFiClientSecure`
+  calls `stack_thunk_add_ref()`, which reserves BearSSL's call stack from the
+  heap at construction rather than at connect — so a global secure client costs
+  about 6.8 kB from boot whether or not a secured connection is ever opened,
+  and it lands mid-heap, halving the largest free block. Measured on one
+  firmware by removing a client it never used: boot heap 25.0 kB to 31.8 kB,
+  largest block at MQTT connect 11.8 kB to 24.8 kB.
+
+  It is a macro rather than an `attach()` parameter so that the page and the
+  application cannot disagree: the same name decides whether the row appears
+  and whether the client is compiled in at all.
 
 ## Optional modules
 
@@ -281,6 +296,7 @@ this, and they are not interchangeable:
 // build_opt.h (ESP32)
 -DNET_CONFIG_MAX_PROFILES=2
 -DNTP_PROFILE_SERVER_COUNT=3
+-DMQTT_CONFIG_TLS=0
 ```
 
 The ESP32 examples ship a `build_opt.h`; the accompanying sketch documents what
