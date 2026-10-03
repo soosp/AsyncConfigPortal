@@ -791,31 +791,30 @@ const char* AsyncConfigPortal::statusPageHtml() const {
     return CONFIG_PORTAL_STATUS_HTML;
 }
 
-bool AsyncConfigPortal::statusJson(char* buf, size_t len) const {
-    // Interface-independent system info only — no network assumptions.
-    uint32_t uptime_s = millis() / 1000UL;
-    const char* reset = "unknown";
+void AsyncConfigPortal::systemStats(SystemStats& out) {
+    out = SystemStats{};
+    out.uptimeS = millis() / 1000UL;
 #if defined(ARDUINO_ARCH_ESP32)
     switch (esp_reset_reason()) {
-        case ESP_RST_POWERON:  reset = "poweron";  break;
-        case ESP_RST_SW:       reset = "software"; break;
-        case ESP_RST_PANIC:    reset = "panic";    break;
+        case ESP_RST_POWERON:  out.resetReason = "poweron";  break;
+        case ESP_RST_SW:       out.resetReason = "software"; break;
+        case ESP_RST_PANIC:    out.resetReason = "panic";    break;
         case ESP_RST_INT_WDT:
         case ESP_RST_TASK_WDT:
-        case ESP_RST_WDT:      reset = "watchdog"; break;
-        case ESP_RST_BROWNOUT: reset = "brownout"; break;
-        case ESP_RST_DEEPSLEEP:reset = "deepsleep";break;
+        case ESP_RST_WDT:      out.resetReason = "watchdog"; break;
+        case ESP_RST_BROWNOUT: out.resetReason = "brownout"; break;
+        case ESP_RST_DEEPSLEEP:out.resetReason = "deepsleep";break;
         default: break;
     }
 #elif defined(ARDUINO_ARCH_ESP8266)
     switch (ESP.getResetInfoPtr()->reason) {
         case REASON_DEFAULT_RST:
-        case REASON_EXT_SYS_RST:      reset = "poweron";   break;
-        case REASON_SOFT_RESTART:     reset = "software";  break;
-        case REASON_EXCEPTION_RST:    reset = "panic";     break;
+        case REASON_EXT_SYS_RST:      out.resetReason = "poweron";   break;
+        case REASON_SOFT_RESTART:     out.resetReason = "software";  break;
+        case REASON_EXCEPTION_RST:    out.resetReason = "panic";     break;
         case REASON_WDT_RST:
-        case REASON_SOFT_WDT_RST:     reset = "watchdog";  break;
-        case REASON_DEEP_SLEEP_AWAKE: reset = "deepsleep"; break;
+        case REASON_SOFT_WDT_RST:     out.resetReason = "watchdog";  break;
+        case REASON_DEEP_SLEEP_AWAKE: out.resetReason = "deepsleep"; break;
         default: break;
     }
 #endif
@@ -833,24 +832,33 @@ bool AsyncConfigPortal::statusJson(char* buf, size_t len) const {
     // document can be built; the page says so in a tooltip.
     //
     // Compute in fixed-point to avoid float in the hot path.
-    uint32_t heap_free = ESP.getFreeHeap();
+    out.heapFree = ESP.getFreeHeap();
 #if defined(ARDUINO_ARCH_ESP32)
-    uint32_t    heap_min  = ESP.getMinFreeHeap();
-    uint32_t    max_alloc = ESP.getMaxAllocHeap();
-    const char* chip      = ESP.getChipModel();
-    unsigned    cores     = ESP.getChipCores();
-    float       temp      = temperatureRead();
+    out.heapMin      = ESP.getMinFreeHeap();
+    out.hasHeapMin   = true;
+    out.heapMaxAlloc = ESP.getMaxAllocHeap();
+    out.chip         = ESP.getChipModel();
+    out.cores        = ESP.getChipCores();
+    out.temp         = temperatureRead();
+    out.hasTemp      = true;
 #elif defined(ARDUINO_ARCH_ESP8266)
-    uint32_t    max_alloc = ESP.getMaxFreeBlockSize();
-    const char* chip      = "ESP8266";
-    unsigned    cores     = 1;
-    // No minimum-heap tracking and no die-temperature sensor here. The two keys
-    // are left out of the document rather than sent as zeros: a reading that does
-    // not exist is not the same fact as a reading of zero, and the page hides a
-    // row whose key is absent.
+    out.heapMaxAlloc = ESP.getMaxFreeBlockSize();
+    out.chip         = "ESP8266";
+    out.cores        = 1;
+    // No minimum-heap tracking and no die-temperature sensor here; the flags
+    // stay false, and the JSON leaves the two keys out rather than send zeros.
 #endif
-    uint32_t frag_pct  = (heap_free > 0)
-        ? (uint32_t)(100UL - (100ULL * max_alloc / heap_free)) : 0;
+    out.heapFragPct = (out.heapFree > 0)
+        ? (uint32_t)(100UL - (100ULL * out.heapMaxAlloc / out.heapFree)) : 0;
+    out.cpuMhz    = ESP.getCpuFreqMHz();
+    out.flashSize = ESP.getFlashChipSize();
+}
+
+bool AsyncConfigPortal::statusJson(char* buf, size_t len) const {
+    // Interface-independent system info only — no network assumptions. The
+    // figures come from systemStats(), which an application can call too.
+    SystemStats s;
+    systemStats(s);
 
     int n = snprintf_P(buf, len,
         PSTR("{\"uptime_s\":%lu,\"heap_free\":%lu,"
@@ -863,21 +871,21 @@ bool AsyncConfigPortal::statusJson(char* buf, size_t len) const {
         "\"temp\":%.0f,"
 #endif
         "\"flash_size\":%lu,\"reset_reason\":\"%s\"}"),
-        (unsigned long)uptime_s,
-        (unsigned long)heap_free,
+        (unsigned long)s.uptimeS,
+        (unsigned long)s.heapFree,
 #if defined(ARDUINO_ARCH_ESP32)
-        (unsigned long)heap_min,
+        (unsigned long)s.heapMin,
 #endif
-        (unsigned long)max_alloc,
-        (unsigned long)frag_pct,
-        chip,
-        (unsigned)cores,
-        (unsigned long)ESP.getCpuFreqMHz(),
+        (unsigned long)s.heapMaxAlloc,
+        (unsigned long)s.heapFragPct,
+        s.chip,
+        (unsigned)s.cores,
+        (unsigned long)s.cpuMhz,
 #if defined(ARDUINO_ARCH_ESP32)
-        temp,
+        s.temp,
 #endif
-        (unsigned long)ESP.getFlashChipSize(),
-        reset);
+        (unsigned long)s.flashSize,
+        s.resetReason);
 
     return (n > 0 && (size_t)n < len);
 }

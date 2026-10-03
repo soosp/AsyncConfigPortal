@@ -91,6 +91,26 @@ builders served at `/fields.js` — `ifRow` (text), `numRow` (number) and
 `selectRow` (dropdown) — the same ones the built-in pages use. `examples/CustomPage`
 is a complete, hardware-free walkthrough of composing your own page this way.
 
+## The same figures in your own log
+
+The Status page's system figures — uptime, reset reason, free heap, its
+minimum since boot, the largest allocatable block, the fragmentation figure,
+die temperature, chip, cores, clock and flash size — are read by one public,
+static call, so a periodic health line or a boot report in your own code shows
+the same numbers as the page, from the same calls:
+
+```cpp
+AsyncConfigPortal::SystemStats s;
+AsyncConfigPortal::systemStats(s);
+ESP_LOGD("main", "up=%lu s heap=%lu min=%lu block=%lu reset=%s",
+         (unsigned long)s.uptimeS, (unsigned long)s.heapFree,
+         (unsigned long)s.heapMin, (unsigned long)s.heapMaxAlloc, s.resetReason);
+```
+
+What a platform cannot provide is flagged (`hasHeapMin`, `hasTemp`), not
+zeroed — on ESP8266 both are false. No portal instance is needed, and the call
+touches no network state.
+
 ## Platform differences
 
 The same code runs on both platforms; where the hardware differs, so does the

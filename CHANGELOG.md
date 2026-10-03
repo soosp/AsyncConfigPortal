@@ -9,6 +9,20 @@ and this project adheres to
 
 ## [Unreleased]
 
+### Added
+
+- `AsyncConfigPortal::systemStats(SystemStats&)`: the Status page's system
+  figures as a public, static call. An application's own logging — a periodic
+  health line, a boot report — then gives the same numbers as the page from the
+  same calls, instead of a second computation that can drift from it. Fields a
+  platform cannot provide are flagged (`hasHeapMin`, `hasTemp`) rather than
+  zeroed.
+
+### Changed
+
+- `statusJson()` is built on `systemStats()`. The `/statusdata` document is
+  unchanged, key for key.
+
 ## [0.6.0] - 2026-10-01
 
 ### Added

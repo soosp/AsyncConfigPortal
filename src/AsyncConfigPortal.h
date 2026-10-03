@@ -770,6 +770,36 @@ public:
     // -------------------------------------------------------------------------
 
     /**
+     * @brief The interface-independent system figures the Status page shows.
+     *
+     * Read the way the page reads them, so that an application's own logging
+     * — a periodic health line, a boot report — gives the same numbers as the
+     * page, from the same calls, instead of a second computation that can
+     * drift from it. Fields a platform cannot provide are flagged rather than
+     * zeroed: a reading that does not exist is not a reading of zero.
+     */
+    struct SystemStats {
+        uint32_t    uptimeS      = 0;  ///< Seconds since boot
+        const char* resetReason  = "unknown";  ///< poweron, software, panic,
+                                       ///< watchdog, brownout, deepsleep, unknown
+        uint32_t    heapFree     = 0;  ///< Free heap, bytes
+        uint32_t    heapMin      = 0;  ///< Lowest free heap since boot (if hasHeapMin)
+        uint32_t    heapMaxAlloc = 0;  ///< Largest allocatable block, bytes
+        uint32_t    heapFragPct  = 0;  ///< 100 × (1 − maxAlloc / free); compare at like load
+        const char* chip         = ""; ///< Chip model
+        unsigned    cores        = 1;
+        uint32_t    cpuMhz       = 0;
+        float       temp         = 0;  ///< Die temperature, °C (if hasTemp)
+        uint32_t    flashSize    = 0;  ///< Bytes
+        bool        hasHeapMin   = false;  ///< ESP32: yes; ESP8266: no tracking
+        bool        hasTemp      = false;  ///< ESP32: yes; ESP8266: no sensor
+    };
+
+    /** @brief Fills @p out with the current figures. Static: no portal
+     *  instance needed; safe from any task. */
+    static void systemStats(SystemStats& out);
+
+    /**
      * @brief Sets the project metadata served at /project.
      *
      * @note Setup-only: call before begin(), from the main task. Stores the
