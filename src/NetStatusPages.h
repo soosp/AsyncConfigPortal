@@ -62,6 +62,10 @@ function render(doc) {
   root.appendChild(c);
 
   var a = group('Addressing');
+  // Before the IP, because it is the one address that does not change: a DHCP
+  // lease moves, the MAC is how the device is found again afterwards. Distinct
+  // from the BSSID above, which belongs to the access point.
+  row(a, 'MAC address', o.mac);
   row(a, 'IP address', o.ip);
   row(a, 'Subnet mask', o.mask);
   row(a, 'Gateway', o.gw);

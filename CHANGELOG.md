@@ -9,6 +9,17 @@ and this project adheres to
 
 ## [Unreleased]
 
+### Added
+
+- The Net status page shows the device's own MAC address, from the `"mac"` field
+  NetworkManager now reports. Placed above the IP, because it is the address
+  that does not change: a DHCP lease moves, and the MAC is how the device is
+  found again afterwards.
+
+  Distinct from the BSSID already shown under Connection, which identifies the
+  access point rather than the device. Needs NetworkManager with `"mac"` in
+  `statusToJson()`; the row is simply absent against an older one.
+
 ## [0.7.0] - 2026-10-04
 
 ### Added
