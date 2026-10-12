@@ -9,6 +9,7 @@
 #include "ConfigWebPages.h"    // PROGMEM HTML/CSS for the built-in pages
 #include "WebFormUtils.h"      // String-free POST helpers
 #include "FirmwareMarker.h"    // OTA firmware identity validation
+#include "detail/origin_check.h" // cross-site request check
 
 #if defined(ARDUINO_ARCH_ESP32)
 #  include <Update.h>
@@ -36,6 +37,19 @@ AsyncConfigPortal::AsyncConfigPortal(uint16_t port)
 
 void AsyncConfigPortal::begin(HttpDigestAuth& auth) {
     _auth = &auth;
+
+    // 0. Cross-site request check, server-wide: it runs before the handler of
+    //    every route, whoever registered it. Upload data reaches its handler
+    //    before this runs, so the upload handlers check each chunk as well.
+    _server.addMiddleware([this](AsyncWebServerRequest* req, ArMiddlewareNext next) {
+        if (_changesState(req) && !originAllowed(req)) {
+            req->send(403, "text/plain",
+                      "Refused: the request did not come from this device's own pages "
+                      "(Origin/Referer check).");
+            return;
+        }
+        next();
+    });
 
     // 1. Common system endpoints (/css, /favicon, /menu, /project, /chkauth,
     //    /logout) and the default Status data endpoint.
@@ -309,6 +323,9 @@ bool AsyncConfigPortal::addUploadHandler(const char* path,
         [this, onChunk, auth](AsyncWebServerRequest* req, const String& filename,
                               size_t index, uint8_t* data, size_t len, bool final) {
             (void)filename;  // dictated by the callback signature; unused here
+            // Before the middleware has run: refuse here, or the data is used
+            // (the middleware logs the refusal once, at the end)
+            if (!originAllowed(req, false)) return;
             if (auth == AuthLevel::Required && !requireAuth(req)) return;
             if (onChunk) onChunk(req, index, data, len, final);
         });
@@ -331,6 +348,32 @@ void AsyncConfigPortal::setProject(const char* name, const char* version,
 // -----------------------------------------------------------------------------
 // Auth helper
 // -----------------------------------------------------------------------------
+
+bool AsyncConfigPortal::_changesState(AsyncWebServerRequest* req) {
+    const WebRequestMethod m = (WebRequestMethod)req->method();
+    return m != HTTP_GET && m != HTTP_HEAD && m != HTTP_OPTIONS;
+}
+
+bool AsyncConfigPortal::originAllowed(AsyncWebServerRequest* req, bool log) const {
+    if (_originCheck == OriginCheck::Off) return true;
+    const AsyncWebHeader* o = req->getHeader("Origin");
+    const AsyncWebHeader* r = req->getHeader("Referer");
+    // host(): the server keeps the Host header there, parsed
+    const acp_detail::OriginVerdict v = acp_detail::checkOrigin(
+        o ? o->value().c_str() : nullptr,
+        r ? r->value().c_str() : nullptr,
+        req->host().c_str());
+    if (v == acp_detail::OriginVerdict::Match) return true;
+    if (v == acp_detail::OriginVerdict::Missing && _originCheck == OriginCheck::Lenient)
+        return true;
+    if (log) {
+        logf(LogLevel::Warn, "web", PSTR("%s %s refused: %s"),
+             req->methodToString(), req->url().c_str(),
+             v == acp_detail::OriginVerdict::Missing ? "no Origin or Referer"
+                                                     : "cross-site request");
+    }
+    return false;
+}
 
 bool AsyncConfigPortal::requireAuth(AsyncWebServerRequest* req) const {
     if (!_auth) {
@@ -698,6 +741,9 @@ void AsyncConfigPortal::_registerOtherPage() {
         [this](AsyncWebServerRequest* req, const String& filename, size_t index,
                uint8_t* data, size_t len, bool final) {
             (void)filename;  // dictated by the callback signature; unused here
+            // Before the middleware has run: a refused upload writes nothing
+            // (the middleware logs the refusal once, at the end)
+            if (!originAllowed(req, false)) return;
             if (!requireAuth(req)) return;
 
             if (index == 0) {

@@ -91,6 +91,38 @@ builders served at `/fields.js` — `ifRow` (text), `numRow` (number) and
 `selectRow` (dropdown) — the same ones the built-in pages use. `examples/CustomPage`
 is a complete, hardware-free walkthrough of composing your own page this way.
 
+## Requests from other sites
+
+Digest authentication alone does not stop a page on another site from using
+the portal: once someone has logged in, their browser adds the stored
+credentials to any request to the device, including a form that some other
+page submits in the background (cross-site request forgery). That form could
+restart the device, change its network settings or upload firmware.
+
+The portal therefore checks every state-changing request (anything but GET,
+HEAD and OPTIONS) before its handler runs: the `Origin` header, or without one
+the `Referer`, must name the host the request was sent to. A page cannot forge
+either header, and every current browser sends `Origin` with a POST. A request
+that fails gets 403 and a log line. The check covers the built-in routes, the
+components and everything an application adds; uploads are checked chunk by
+chunk as well, so a refused firmware upload writes nothing.
+
+```cpp
+portal.setOriginCheck(AsyncConfigPortal::OriginCheck::Strict);   // the default
+```
+
+|Setting|A request with neither header|Use|
+|---|---|---|
+|`Strict`|refused|The default. A script adds the header: `curl -H "Origin: http://192.168.1.50" ...`|
+|`Lenient`|let through|Old clients or scripts that cannot set a header|
+|`Off`|let through, and no check at all|Debugging only|
+
+A reverse proxy in front of the device must pass the original `Host` header,
+or every request looks cross-site. An upload route a subclass registers
+directly on `server()` gets the middleware check, which runs only after the
+upload: such a handler should call `originAllowed(req, false)` for each chunk
+itself.
+
 ## The same figures in your own log
 
 The Status page's system figures — uptime, reset reason, free heap, its

@@ -9,7 +9,25 @@ and this project adheres to
 
 ## [Unreleased]
 
-### Fixed
+### Security
+
+- Cross-site request forgery is refused. Digest credentials stored in a
+  browser are added to any request to the device, also to a form another site
+  submits, so such a page could restart the device, change its settings or
+  upload firmware. Every state-changing request (not GET, HEAD or OPTIONS) is
+  now checked by a server-wide middleware before its handler runs: its
+  `Origin`, or without one its `Referer`, must name the `Host` it was sent
+  to, or the answer is 403. Uploads (`addUploadHandler()`, `/update`) are
+  checked chunk by chunk too, since the server hands over upload data before
+  the middleware runs; a refused firmware upload writes nothing
+
+### Added
+
+- `setOriginCheck()` and `OriginCheck`: `Strict` (the default: a request
+  with neither header is refused), `Lenient` (let through) or `Off`
+- `test/origin_harness.cpp`: host tests for the check
+
+### Changed
 
 - `EthConfigButton` example: the Network page could save the configuration
   address. The page and the adapter shared one Ethernet profile, so in config

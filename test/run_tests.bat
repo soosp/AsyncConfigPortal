@@ -26,9 +26,18 @@ set RC=0
 echo ------------------------------------------------------------
 echo Building JSON regression suite ...
 g++ %FLAGS% json_harness.cpp -o json_harness.exe
-if errorlevel 1 ( echo BUILD FAILED: json_harness.cpp & set RC=1 & goto :done )
+if errorlevel 1 ( echo BUILD FAILED: json_harness.cpp & set RC=1 & goto :origin )
 echo Running JSON regression suite:
 json_harness.exe
+if errorlevel 1 set RC=1
+
+:origin
+echo ------------------------------------------------------------
+echo Building origin check suite ...
+g++ %FLAGS% origin_harness.cpp -o origin_harness.exe
+if errorlevel 1 ( echo BUILD FAILED: origin_harness.cpp & set RC=1 & goto :done )
+echo Running origin check suite:
+origin_harness.exe
 if errorlevel 1 set RC=1
 
 :done

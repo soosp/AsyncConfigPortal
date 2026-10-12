@@ -61,6 +61,7 @@ build_and_run() {
 
 rc=0
 build_and_run json_harness.cpp "json_harness${SUFFIX}" "$LABEL" || rc=1
+build_and_run origin_harness.cpp "origin_harness${SUFFIX}" "origin check" || rc=1
 
 echo "------------------------------------------------------------"
 if [ "$rc" -eq 0 ]; then

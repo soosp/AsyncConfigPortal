@@ -14,17 +14,26 @@ INCLUDES := -I. -I.. -I../src
 SANFLAGS := -fsanitize=address,undefined -fno-omit-frame-pointer
 
 HARNESS := json_harness
+ORIGIN  := origin_harness
 
-.PHONY: all run san clean
+.PHONY: all run origin san clean
 all: run
 
 $(HARNESS): json_harness.cpp
 	$(CXX) $(CXXFLAGS) $(INCLUDES) $< -o $@
 
-run: $(HARNESS)
+run: $(HARNESS) origin
 	@echo "------------------------------------------------------------"
 	@echo "JsonReadUtils suite:"
 	@./$(HARNESS)
+
+$(ORIGIN): origin_harness.cpp
+	$(CXX) $(CXXFLAGS) $(INCLUDES) $< -o $@
+
+origin: $(ORIGIN)
+	@echo "------------------------------------------------------------"
+	@echo "Origin check suite:"
+	@./$(ORIGIN)
 
 # The parser eats uploaded, untrusted input, so the sanitized run is the one
 # that actually justifies hand-writing it rather than pulling in a dependency.
@@ -35,4 +44,4 @@ san: json_harness.cpp
 	@./$(HARNESS)_san
 
 clean:
-	@rm -f $(HARNESS) $(HARNESS)_san $(HARNESS).exe $(HARNESS)_san.exe
+	@rm -f $(HARNESS) $(HARNESS)_san $(HARNESS).exe $(HARNESS)_san.exe $(ORIGIN) $(ORIGIN).exe

@@ -392,6 +392,42 @@ public:
     void setCssExtra(const char* css) { _cssExtra = css; }
 
     /**
+     * @brief How a state-changing request (POST, and any method other than
+     *        GET, HEAD and OPTIONS) is checked for where it came from.
+     *
+     * Cross-site request forgery: a page on another site can make the
+     * browser post to the device, and the browser adds the stored digest
+     * credentials by itself. It cannot forge the Origin or Referer header,
+     * so a request whose Origin (or, without one, Referer) does not name the
+     * Host it was sent to is refused with 403.
+     */
+    enum class OriginCheck : uint8_t {
+        /// Origin or Referer must name this host; a request with neither is
+        /// refused. Every current browser sends Origin with a POST; a script
+        /// adds it (curl -H "Origin: http://<device>"). The default.
+        Strict = 0,
+        /// As Strict, but a request with neither header is let through (old
+        /// clients, scripts that cannot set a header).
+        Lenient,
+        /// No check. For debugging only: every authenticated browser session
+        /// can then be used by any site the same browser visits.
+        Off
+    };
+
+    /**
+     * @brief Sets the cross-site request check. Strict by default.
+     *
+     * Covers every route, the built-in ones, the components' and the
+     * application's: a server-wide middleware checks the request before its
+     * handler runs. Upload handlers registered with addUploadHandler() and the
+     * firmware update also check each chunk, because the server hands upload
+     * data to the handler before the middleware runs; an upload route set up
+     * directly on server() does not get that per-chunk check.
+     */
+    void setOriginCheck(OriginCheck check) { _originCheck = check; }
+    OriginCheck originCheck() const { return _originCheck; }
+
+    /**
      * @brief Supplies the icon served at /favicon.ico.
      *
      * The route exists either way; with no icon set it answers 204, which stops
@@ -852,6 +888,17 @@ protected:
      */
     bool requireAuth(AsyncWebServerRequest* req) const;
 
+    /**
+     * @brief Whether a request passes the OriginCheck (see setOriginCheck()).
+     *
+     * The server-wide middleware already applies it to every route; an upload
+     * handler set up directly on server() calls it for each chunk, since
+     * upload data arrives before the middleware runs.
+     *
+     * @param log Log a refusal (pass false for the chunks, true once).
+     */
+    bool originAllowed(AsyncWebServerRequest* req, bool log = true) const;
+
     /** @brief The underlying server, for advanced subclass needs. */
     AsyncWebServer& server() { return _server; }
 
@@ -920,6 +967,10 @@ private:
     void _scheduleRestart();
 
 
+    /** @brief State-changing method (not GET, HEAD or OPTIONS). */
+    static bool _changesState(AsyncWebServerRequest* req);
+
+
  
 
     // -------------------------------------------------------------------------
@@ -927,6 +978,7 @@ private:
     // -------------------------------------------------------------------------
 
     AsyncWebServer  _server;
+    OriginCheck     _originCheck = OriginCheck::Strict;
     /// Stylesheet served on /css; nullptr means the built-in one. The macro that
     /// names it lives in ConfigWebPages.h, which this header does not include —
     /// the serving side resolves it instead, so this header stays independent.
