@@ -9,6 +9,8 @@ and this project adheres to
 
 ## [Unreleased]
 
+## [0.9.0] - 2026-10-12
+
 ### Security
 
 - Cross-site request forgery is refused. Digest credentials stored in a
@@ -312,7 +314,8 @@ none of them has neither dependency.
   an unconfigured one settles on a fixed address when no DHCP answers, and a
   deployed one moves to it on a button press).
 
-[Unreleased]: https://github.com/soosp/AsyncConfigPortal/compare/0.8.0...HEAD
+[Unreleased]: https://github.com/soosp/AsyncConfigPortal/compare/0.9.0...HEAD
+[0.9.0]: https://github.com/soosp/AsyncConfigPortal/compare/0.8.0...0.9.0
 [0.8.0]: https://github.com/soosp/AsyncConfigPortal/compare/0.7.0...0.8.0
 [0.7.0]: https://github.com/soosp/AsyncConfigPortal/compare/0.6.0...0.7.0
 [0.6.0]: https://github.com/soosp/AsyncConfigPortal/compare/0.5.2...0.6.0
