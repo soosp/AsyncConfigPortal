@@ -39,6 +39,17 @@
 // the rule above it would then never move on its own again — stuck on an address
 // its network has no use for.
 //
+// TWO ETHERNET PROFILES, for the same reason. The adapter reads its profile when
+// it starts and when the link comes up, so the config address has to be in the
+// profile the adapter runs on, for as long as config mode lasts. The Network page,
+// though, edits the profile it is given and saves the whole of it: given that same
+// profile, it would show CONFIG_IP as a static address, and a save that changed
+// only the hostname — or left the DHCP box as shown — would store CONFIG_IP for
+// good. So the page gets a second profile, savedProfile, loaded from the same
+// namespace, that never holds anything but the saved settings; the adapter runs
+// on runtimeProfile. Saving restarts the device, and both load the new settings
+// from flash.
+//
 // WHAT THE BUTTON DOES NOT COVER, and what a real product should add.
 //
 // An address that is wrong for the network is already handled: the device comes
@@ -50,7 +61,7 @@
 // The usual answer is a long press on this same button, wired to the same
 // erasures the portal's reset performs:
 //
-//     ethProfile.clearCfg(NS_ETH);   // unprovisioned again: back to CONFIG_IP
+//     savedProfile.clearCfg(NS_ETH); // unprovisioned again: back to CONFIG_IP
 //     auth.clear();                  // next boot restores admin/admin below
 //     ESP.restart();
 //
@@ -116,8 +127,9 @@ static const char NS_ETH[] = "eth";
 // Objects
 // -----------------------------------------------------------------------------
 
-EthProfile ethProfile;
-EthAdapter ethAdapter(ethProfile);
+EthProfile runtimeProfile;      // the adapter's: the saved settings, or CONFIG_IP
+EthProfile savedProfile;        // the Network page's: always the saved settings
+EthAdapter ethAdapter(runtimeProfile);
 
 AsyncConfigPortal  web(80);
 HttpDigestAuth     auth;
@@ -151,7 +163,7 @@ static bool applyAddressing(bool useConfigAddress) {
     NetworkProfile::NetworkConfig cfg;
 
     if (useConfigAddress) {
-        if (!ethProfile.getConfig(cfg)) {
+        if (!runtimeProfile.getConfig(cfg)) {
             Serial.println(F("  getConfig failed (mutex timeout); unchanged"));
             return false;
         }
@@ -161,7 +173,7 @@ static bool applyAddressing(bool useConfigAddress) {
         cfg.gateway = IPAddress();
         for (uint8_t i = 0; i < NetworkProfile::DNS_SERVER_COUNT; i++)
             cfg.dns[i] = IPAddress();
-        if (!ethProfile.setConfig(cfg)) {
+        if (!runtimeProfile.setConfig(cfg)) {
             Serial.print(F("  config address rejected: "));
             Serial.println(NetworkProfile::configCheckName(
                                NetworkProfile::checkConfig(cfg)));
@@ -170,7 +182,7 @@ static bool applyAddressing(bool useConfigAddress) {
     } else {
         // Back to what is stored. Reloading rather than editing the struct: the
         // saved profile is the truth, and the config address never reached it.
-        if (!ethProfile.loadCfg(NS_ETH) && !ethProfile.setConfig(cfg)) {
+        if (!runtimeProfile.loadCfg(NS_ETH) && !runtimeProfile.setConfig(cfg)) {
             Serial.println(F("  nothing saved and defaults rejected; unchanged"));
             return false;                    // cfg is default-constructed: DHCP
         }
@@ -268,10 +280,11 @@ void setup() {
 
     // Saved configuration if there is one, DHCP if not. The config address is
     // never among the candidates: it is a runtime decision, not a stored one.
-    provisioned = ethProfile.loadCfg(NS_ETH);
+    provisioned = runtimeProfile.loadCfg(NS_ETH);
+    savedProfile.loadCfg(NS_ETH);             // defaults (DHCP) when nothing is saved
     if (!provisioned) {
         NetworkProfile::NetworkConfig cfg;    // defaults: DHCP, priority 0
-        if (!ethProfile.setConfig(cfg)) {
+        if (!runtimeProfile.setConfig(cfg)) {
             Serial.println(F("Default configuration rejected - halting."));
             while (true) delay(1000);
         }
@@ -293,7 +306,7 @@ void setup() {
         Serial.println(F("auth: no stored credentials - defaults set (admin/admin)"));
     }
 
-    netConfig.addProfile(ethProfile, NS_ETH);
+    netConfig.addProfile(savedProfile, NS_ETH); // never the one holding CONFIG_IP
     netConfig.onSaved([](const NetConfigComponent::NetChangeSet& changed) {
         if (!changed.any()) {
             Serial.println(F("net: submit with no changes - ignoring"));

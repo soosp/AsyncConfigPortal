@@ -253,6 +253,10 @@ same address for the length of the visit.
 
 Neither address is ever saved, so a reset always returns to the stored
 configuration, and the only way into the configured state is saving on this page.
+The example gives the page its own Ethernet profile (`savedProfile`), loaded from
+the same namespace, and puts the fixed address only into the adapter's
+(`runtimeProfile`): the page edits and saves whole profiles, so sharing one would
+show the fixed address as the stored configuration and could save it.
 
 ### Net status
 

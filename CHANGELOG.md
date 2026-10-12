@@ -9,6 +9,16 @@ and this project adheres to
 
 ## [Unreleased]
 
+### Fixed
+
+- `EthConfigButton` example: the Network page could save the configuration
+  address. The page and the adapter shared one Ethernet profile, so in config
+  mode the page showed `CONFIG_IP` as a static address, and a save that
+  changed only the hostname, or left the DHCP box as shown, stored it for good.
+  The page now edits its own profile (`savedProfile`), loaded from the same
+  namespace, and the configuration address goes only into the adapter's
+  (`runtimeProfile`)
+
 ## [0.8.0] - 2026-10-07
 
 ### Added
