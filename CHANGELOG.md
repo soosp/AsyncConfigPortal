@@ -9,6 +9,8 @@ and this project adheres to
 
 ## [Unreleased]
 
+## [0.11.0] - 2026-10-13
+
 ### Added
 
 - `pfPost(url, body, opts, ctx)`: posts without a form of its own (an
@@ -419,7 +421,8 @@ none of them has neither dependency.
   an unconfigured one settles on a fixed address when no DHCP answers, and a
   deployed one moves to it on a button press).
 
-[Unreleased]: https://github.com/soosp/AsyncConfigPortal/compare/0.10.0...HEAD
+[Unreleased]: https://github.com/soosp/AsyncConfigPortal/compare/0.11.0...HEAD
+[0.11.0]: https://github.com/soosp/AsyncConfigPortal/compare/0.11.0...0.11.0
 [0.10.0]: https://github.com/soosp/AsyncConfigPortal/compare/0.9.2...0.10.0
 [0.9.2]: https://github.com/soosp/AsyncConfigPortal/compare/0.9.1...0.9.2
 [0.9.1]: https://github.com/soosp/AsyncConfigPortal/compare/0.9.0...0.9.1
