@@ -78,6 +78,11 @@ function dim() {
   validateForm('syslogform', 'saveBtn', syslogRules);
 }
 
+// The device's own checks, at their fields (AsyncConfigPortal::sendResult())
+var MAP = {no_host: ['host', 'Required'], bad_host: ['host', 'Not a host name or IP address'],
+  bad_port: ['port', 'Between 1 and 65535'], bad_severity: ['sev', 'Choose one'],
+  bad_facility: ['fac', 'Choose one']};
+
 function init() { initCommon(); getJSON('/syslogdata', build); }
 </script>
 </head><body onload="init()">
@@ -85,9 +90,9 @@ function init() { initCommon(); getJSON('/syslogdata', build); }
 CONFIG_PORTAL_HEADER
 R"HTML(
 <div class="content">
-  <form method="post" action="/syslog">
+  <form method="post" action="/syslog" onsubmit="return pfSubmit(this,{map:MAP})">
     <div id="syslogform"></div>
-    <div class="submit"><input type="submit" id="saveBtn" value="Save"></div>
+    <div class="submit"><input type="submit" id="saveBtn" value="Save"><span class="pmsg"></span></div>
   </form>
 </div>
 )HTML"

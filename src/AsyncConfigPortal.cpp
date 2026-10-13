@@ -718,13 +718,13 @@ void AsyncConfigPortal::_registerOtherPage() {
         postVal(req, "pw",   c.pw,   HttpDigestAuth::MAX_PASSWORD_SIZE);
         _auth->setCredentials(c);
         _auth->save();
-        sendProgmem(req, 200, "text/html", CONFIG_PORTAL_PWCHANGE_HTML);
+        sendResult(req, 200, "ok");   // the page signs out and in again
     });
 
     // Restart.
     _server.on("/restart", HTTP_POST, [this](AsyncWebServerRequest* req) {
         if (!requireAuth(req)) return;
-        sendProgmem(req, 200, "text/html", CONFIG_PORTAL_REBOOT_HTML);
+        sendResult(req, 200, "ok", -1, nullptr, true);   // the page waits for it
         // Reboot from a short-lived task so the response flushes first (see the
         // OTA handler for the rationale).
         _scheduleRestart();
@@ -780,13 +780,15 @@ void AsyncConfigPortal::_registerOtherPage() {
             if (!requireAuth(req)) return;
             // A marker mismatch is reported distinctly from a flash error.
             if (_otaReject) {
-                sendProgmem(req, 200, "text/html", CONFIG_PORTAL_FWMISMATCH_HTML);
+                sendResult_P(req, 400, "fw_mismatch", -1,
+                    PSTR("This firmware is not for this device. Nothing was changed."));
                 _otaReject = false;
                 return;
             }
             bool ok = !Update.hasError();
-            sendProgmem(req, 200, "text/html",
-                        ok ? CONFIG_PORTAL_REBOOT_HTML : CONFIG_PORTAL_FILEERROR_HTML);
+            if (ok) sendResult(req, 200, "ok", -1, nullptr, true);   // the page waits
+            else    sendResult_P(req, 400, "bad_file", -1,
+                        PSTR("Malformed or incomplete file. Nothing was changed."));
             // Restart from a short-lived task, not here: calling ESP.restart()
             // inside the async handler cuts the TCP connection before the reply
             // is fully flushed, which the browser sees as a timeout. The task

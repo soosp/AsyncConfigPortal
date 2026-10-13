@@ -335,8 +335,8 @@ private:
     void _save(AsyncWebServerRequest* req) {
         MqttProfile::MqttConfig c;
         if (!_profile->getConfig(c)) {
-            AsyncConfigPortal::sendProgmem(req, 500, "text/html",
-                                           CONFIG_PORTAL_SAVE_FAILED_HTML);
+            AsyncConfigPortal::sendResult_P(req, 500, "busy", -1,
+                                            PSTR("Busy; nothing was changed."));
             return;
         }
         const MqttProfile::MqttConfig before = c;
@@ -386,16 +386,15 @@ private:
             _checkStr(cc, why, sizeof(why));
             _srv->logf(AsyncConfigPortal::LogLevel::Warn, "mqtt",
                        PSTR("rejected: %s"), why);
-            AsyncConfigPortal::sendProgmem(req, 400, "text/html",
-                                           CONFIG_PORTAL_SAVE_FAILED_HTML);
+            AsyncConfigPortal::sendResult(req, 400, _checkCode(cc), -1, why);
             return;
         }
 
         if (!_profile->setConfig(c) || !_profile->saveCfg(_ns)) {
             _srv->logf(AsyncConfigPortal::LogLevel::Error, "mqtt",
                        PSTR("could not be saved"));
-            AsyncConfigPortal::sendProgmem(req, 500, "text/html",
-                                           CONFIG_PORTAL_SAVE_FAILED_HTML);
+            AsyncConfigPortal::sendResult_P(req, 500, "storage_error", -1,
+                                            PSTR("Could not be saved."));
             return;
         }
 
@@ -413,8 +412,10 @@ private:
                    ch.connection  ? ", connection settings changed" : "",
                    ch.haDiscovery ? ", HA discovery changed" : "");
 
-        AsyncConfigPortal::sendProgmem(req, 200, "text/html",
-                                       CONFIG_PORTAL_SAVED_HTML);
+        // The page waits for the restart the application does on a
+        // connection change, if it said so (setRestartOnSave())
+        AsyncConfigPortal::sendResult(req, 200, "ok", -1, nullptr,
+                                      _restartOnSave && ch.connection);
         if (_onSaved && ch.any()) _onSaved(ch);
     }
 
@@ -532,7 +533,7 @@ private:
             char why[CHECK_STR_SIZE];
             _checkStr(cc, why, sizeof(why));
             _claim().release(req);
-            AsyncConfigPortal::sendResult(req, 400, "refused", -1, why);
+            AsyncConfigPortal::sendResult(req, 400, _checkCode(cc), -1, why);
             return;
         }
         if (!_profile->setConfig(c) || !_profile->saveCfg(_ns)) {
@@ -581,6 +582,18 @@ private:
     // Every enumerator is listed and the fallback is the initialiser rather
     // than a default: label, which would silence -Wswitch and let a value added
     // to MqttProfile::ConfigCheck later arrive unnoticed.
+    /// The result code of a check, for the page to tie to its field.
+    static const char* _checkCode(MqttProfile::ConfigCheck c) {
+        switch (c) {
+            case MqttProfile::ConfigCheck::Ok:      return "ok";
+            case MqttProfile::ConfigCheck::NoHost:  return "no_host";
+            case MqttProfile::ConfigCheck::BadHost: return "bad_host";
+            case MqttProfile::ConfigCheck::BadPort: return "bad_port";
+            case MqttProfile::ConfigCheck::PasswordWithoutUser:
+                                                    return "password_without_user";
+        }
+        return "refused";
+    }
     static void _checkStr(MqttProfile::ConfigCheck c, char* out, size_t len) {
         PGM_P p = PSTR("invalid");
         switch (c) {

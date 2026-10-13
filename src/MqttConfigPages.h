@@ -120,6 +120,11 @@ function dim() {
   validateForm('mqttform', 'saveBtn', mqttRules);
 }
 
+// The device's own checks, at their fields (AsyncConfigPortal::sendResult())
+var MAP = {no_host: ['host', 'Required'], bad_host: ['host', 'Not a host name or IP address'],
+  bad_port: ['port', 'Between 1 and 65535'],
+  password_without_user: ['user', 'Required with a password']};
+
 function init() { initCommon(); getJSON('/mqttdata', build); }
 </script>
 </head><body onload="init()">
@@ -127,9 +132,9 @@ function init() { initCommon(); getJSON('/mqttdata', build); }
 CONFIG_PORTAL_HEADER
 R"HTML(
 <div class="content">
-  <form method="post" action="/mqtt">
+  <form method="post" action="/mqtt" onsubmit="return pfSubmit(this,{map:MAP})">
     <div id="mqttform"></div>
-    <div class="submit"><input type="submit" id="saveBtn" value="Save"></div>
+    <div class="submit"><input type="submit" id="saveBtn" value="Save"><span class="pmsg"></span></div>
   </form>
 </div>
 )HTML"

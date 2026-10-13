@@ -190,7 +190,7 @@ layout system; the built-in pages use nothing else.
 |Class|Applied by|Meaning|
 |---|---|---|
 |`.label.required`|field builder|renders the `*` marker via `::after`|
-|`.invalid`|validation engine|on the input or select that failed|
+|`.invalid`|validation engine|on the input or select that failed (the sheet also outlines `:user-invalid`: a built-in constraint failed after the user touched the field, so a required field is not red before anyone typed)|
 |`.field-error`|field builder|the per-field message; **hidden by default**, the engine sets `display`|
 |`.hint`|page|explanatory line under a field, in muted text|
 |`.submit`|page|wrapper around the submit control|

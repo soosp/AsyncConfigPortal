@@ -9,6 +9,36 @@ and this project adheres to
 
 ## [Unreleased]
 
+### Added
+
+- `pfPost(url, body, opts, ctx)`: posts without a form of its own (an
+  action with a few fields), answered as `pfSubmit()` is; `pfSubmit()` is
+  built on it. Both use an `XMLHttpRequest`, so a file upload shows its
+  progress in the answer line. `pfRestarting(text, url)`: where to go once
+  the device is back (`restartUrl` in the options)
+
+### Changed
+
+- The Syslog, MQTT and Other pages post in the page too, like the Backup
+  page since 0.10.0. A refused Syslog or MQTT field is outlined and named
+  below the Save button (`no_host`, `bad_host`, `bad_port`, `bad_severity`,
+  `bad_facility`; `password_without_user`), the former text as the
+  message; the "Configuration rejected" page, which could not say what was
+  wrong, is no longer used by the library. On the Other page a password
+  change signs out from the page, a restart and a firmware update cover the
+  page until the device is back and then open the Status page, and a
+  refused firmware (`fw_mismatch`, `bad_file`) is named below the Update
+  button. The factory reset keeps its own page: the credentials are gone
+  and the address may be. `CONFIG_PORTAL_SAVED_HTML`,
+  `CONFIG_PORTAL_SAVE_FAILED_HTML`, `CONFIG_PORTAL_REBOOT_HTML` and the
+  other result pages stay for applications' plain-post routes
+- An MQTT save that changes the connection answers with "restart" when the
+  application said it restarts (`setRestartOnSave()`), so the page waits
+  for it
+- A required field left empty is no longer outlined before the user has
+  touched it (`:user-invalid` instead of `:invalid` in the stylesheet): the
+  Backup page's file inputs were red from the start
+
 ## [0.10.0] - 2026-10-13
 
 ### Added

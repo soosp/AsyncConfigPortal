@@ -68,23 +68,26 @@ portal; `setCss()` replaces the sheet outright if you want that far.
 
 A form can be posted two ways.
 
-- **With `fetch()`**, so the page stays: `onsubmit="return pfSubmit(this)"`
-  (from `/common.js`) posts the form, and the handler answers with
+- **In the page**: `onsubmit="return pfSubmit(this, {map: MAP})"` (from
+  `/common.js`) posts the form without leaving, and the handler answers with
   `sendResult(req, code, "ok")` or the name of what it refused — with the
   item's index, a message and a restart flag where they apply. The answer
-  appears in a `<span class="pmsg">` below the button, a refused field can be
-  outlined (`map`), and what the user typed stays. A restart flag covers the
-  page until the device is back. The Backup page restores this way.
+  appears in a `<span class="pmsg">` below the button, a refused field is
+  outlined where `map` names it, and what the user typed stays. A restart
+  flag covers the page until the device is back, then opens it again (or
+  `restartUrl`). A file upload shows its progress. `pfPost(url, body, opts,
+  ctx)` does the same for an action that has no form of its own. The
+  built-in pages (Syslog, MQTT, Backup, Other) all work this way.
   `sendResult()` builds the answer in the buffer the JSON endpoints share; a
   message longer than `RESULT_MESSAGE_LEN` goes with a buffer of the
   application's own, sized with `resultJsonLen()`.
 - **As a plain post**, answered with the shared result pages
   `CONFIG_PORTAL_SAVED_HTML` and `CONFIG_PORTAL_SAVE_FAILED_HTML`: both return
   to the page the POST came from, so a component serves them as they are and
-  does not name its own path. (The Other page's own results — reboot, factory
-  reset — go elsewhere on purpose: after a restart, "back where you came from"
-  is the wrong answer.) `pfSubmit()` understands these answers too, so a
-  handler can be moved over later.
+  does not name its own path. (A factory reset answers with its own page:
+  the credentials are gone and the address may be, so there is nowhere to
+  go back to.) `pfSubmit()` understands these answers too, so a handler can
+  be moved over later.
 
 Two things worth knowing when you compose a page:
 

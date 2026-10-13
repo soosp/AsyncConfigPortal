@@ -99,7 +99,7 @@ body {
   background: #fff;
   font: inherit;
 }
-.value input:invalid { border-color: var(--alarm); }
+.value input:user-invalid { border-color: var(--alarm); }
 .value input[readonly], .value input:disabled { background: #eef1f4; color: var(--muted); }
 /* Validation: required marker, invalid state, and per-field error message. */
 .value input.invalid, .value select.invalid { border-color: var(--alarm); background: #fff5f5; }
@@ -308,43 +308,47 @@ function pfParts(c){c=c||document;return{b:c.querySelector('input[type=submit],b
 function pfMsg(t,k,c){var e=pfParts(c).m;if(!e)return;e.textContent=t||'';e.className='pmsg'+(k?' '+k:'');}
 function pfLabel(e){var r=e.closest('.row'),l=r&&r.querySelector('.label');return l?l.textContent.replace(/[:*\s]+$/,'')+': ':'';}
 )JS"
-// pfSubmit(f, opts): posts form f; use as onsubmit="return pfSubmit(this)".
-// opts: url (default: the form's action), map {result: [field id, text], or
-// function(index) returning one}, busy, okText, failText, done(answer).
-// A file input makes it multipart, otherwise urlencoded, as a plain post.
+// pfPost(url, body, opts, ctx): posts body (URLSearchParams, or FormData
+// for a file) and shows the answer in ctx (a form or a box). opts: map
+// {result: [field id, text], or function(index) returning one}, busy, okText,
+// failText, done(answer), restartUrl (where to go once the device is back;
+// default: this page). pfSubmit(f, opts) posts form f the same way: use as
+// onsubmit="return pfSubmit(this)"; opts.url replaces the form's action.
+// An XMLHttpRequest rather than fetch(): it reports the upload's progress
+// (shown while a file goes up), as the rest of this script does its own.
 // An answer that is not JSON (a handler still sending a page or a line of
 // text) is read as ok for a 2xx, its text otherwise. A refused field gets the
 // outline only, its message goes below the button, which does not move: a
 // message under the field would vanish on blur and move the button from
 // under the pointer as it is clicked.
-R"JS(function pfSubmit(f,o){o=o||{};var b=pfParts(f).b,M=function(t,k){pfMsg(t,k,f);},F=o.failText||'Not saved';
-var d=new FormData(f),y=f.querySelector('input[type=file]')?d:new URLSearchParams(d);
-if(b)b.disabled=true;M(o.busy||'Saving...','');
-fetch(o.url||f.getAttribute('action'),{method:'POST',body:y})
-.then(function(r){netMark(true);var c=r.headers.get('Content-Type')||'';
-if(c.indexOf('json')>=0)return r.json().catch(function(){return{result:'http_'+r.status};});
-return r.text().then(function(t){if(r.ok)return{result:'ok'};
-if(c.indexOf('html')>=0)t=new DOMParser().parseFromString(t,'text/html').body.textContent;
-return{result:'http_'+r.status,message:t.trim()};});})
-.then(function(a){if(b)b.disabled=false;
-if(a.result=='ok'){if(a.restart){pfRestarting((a.message||o.okText||'Saved')+'. The device is restarting...');return;}
+R"JS(function pfPost(u,y,o,c){o=o||{};var b=pfParts(c).b,M=function(t,k){pfMsg(t,k,c);},F=o.failText||'Not saved',B=o.busy||'Saving...';
+var x=new XMLHttpRequest();if(b)b.disabled=true;M(B,'');
+if(x.upload)x.upload.onprogress=function(e){if(e.lengthComputable&&e.total>65536)M(B+' '+Math.round(100*e.loaded/e.total)+'%','');};
+x.onreadystatechange=function(){if(x.readyState!=4)return;if(b)b.disabled=false;
+if(x.status===0){netMark(false);M('No answer from the device: '+F.toLowerCase(),'bad');return;}
+netMark(true);var a,h=x.getResponseHeader('Content-Type')||'',t=x.responseText;
+if(h.indexOf('json')>=0){try{a=JSON.parse(t);}catch(e){a={result:'http_'+x.status};}}
+else if(x.status<300)a={result:'ok'};
+else{if(h.indexOf('html')>=0)t=new DOMParser().parseFromString(t,'text/html').body.textContent;a={result:'http_'+x.status,message:t.trim()};}
+if(a.result=='ok'){if(a.restart){pfRestarting((a.message||o.okText||'Saved')+'. The device is restarting...',o.restartUrl);return;}
 M(a.message||o.okText||'Saved','ok');if(o.done)o.done(a);return;}
 var m=o.map&&o.map[a.result];if(typeof m=='function')m=m(a.index);
 if(m&&ID(m[0])){var e=ID(m[0]);if(typeof fvFail=='function')fvFail(e,'');e.focus();M(F+': '+pfLabel(e)+m[1],'bad');return;}
-M(a.message||PF_ERR[a.result]||(F+': '+a.result),'bad');})
-.catch(function(){if(b)b.disabled=false;netMark(false);M('No answer from the device: '+F.toLowerCase(),'bad');});
-return false;}
+M(a.message||PF_ERR[a.result]||(F+': '+a.result),'bad');};
+x.open('POST',u,true);x.send(y);return false;}
+function pfSubmit(f,o){o=o||{};var d=new FormData(f);
+return pfPost(o.url||f.getAttribute('action'),f.querySelector('input[type=file]')?d:new URLSearchParams(d),o,f);}
 )JS"
-// pfRestarting(text): covers the page while the device restarts and reloads
-// it once the device answers again: after it was seen gone, or after 20 s
-// (a restart quicker than the 2 s poll). After 60 s it says the device may be
-// at a new address, and keeps waiting.
-R"JS(function pfRestarting(t){var d=ID('pfOverlay');
+// pfRestarting(text, url): covers the page while the device restarts and
+// opens url (default: this page again) once the device answers: after it was
+// seen gone, or after 20 s (a restart quicker than the 2 s poll). After 60 s
+// it says the device may be at a new address, and keeps waiting.
+R"JS(function pfRestarting(t,u){var d=ID('pfOverlay');
 if(!d){d=document.createElement('div');d.id='pfOverlay';d.className='alert-container';
 d.innerHTML='<div class="alert-backdrop"></div><div class="alert-content" id="pfText"></div>';document.body.appendChild(d);}
 ID('pfText').textContent=t;d.style.display='';var t0=Date.now(),g=false;
 function p(){var x=new XMLHttpRequest();x.onreadystatechange=function(){if(x.readyState!=4)return;var e=Date.now()-t0;
-if(x.status!==0&&(g||e>20000)){location.reload();return;}if(x.status===0)g=true;
+if(x.status!==0&&(g||e>20000)){if(u)location.replace(u);else location.reload();return;}if(x.status===0)g=true;
 if(e>60000)ID('pfText').textContent='The device has not come back at this address. If its network settings changed, open it at the new address.';
 setTimeout(p,2000);};x.open('GET','/chkauth',true);x.timeout=2000;x.send();}
 setTimeout(p,2000);}
@@ -698,15 +702,15 @@ function setData(o){ID('user').value=o.user;checkAuth();}
 function checkAuth(){var s=ID('authSubmit');
 var ok=ID('user').value!=''&&ID('pw').value.length>=5&&ID('pw').value==ID('pwchk').value;
 s.disabled=!ok;}
-function onUpdate(){ID('update-alert').style.display='flex';}
-function init(){initCommon();getJSON('/authdata',setData);
-ID('updateForm').addEventListener('submit',onUpdate);}
+function pwSaved(){var x=new XMLHttpRequest();x.open('GET','/authdata',true,'x','x');x.send();
+setTimeout(function(){location.href='/';},600);}
+function init(){initCommon();getJSON('/authdata',setData);}
 </script>
 )HTML"
 CONFIG_PORTAL_HEADER
 R"HTML(
 <div class="content">
-  <form method="post" action="/misc" id="authForm">
+  <form method="post" action="/misc" id="authForm" onsubmit="return pfSubmit(this,{okText:'Password saved: sign in again',done:pwSaved})">
     <div class="group">
       <div class="group-title">Authentication</div>
       <div class="row"><span class="label">Username:</span><span class="value">
@@ -716,15 +720,15 @@ R"HTML(
       <div class="row"><span class="label">Confirm:</span><span class="value">
         <input type="password" id="pwchk" pattern=".{5,20}" oninput="checkAuth()" required></span></div>
     </div>
-    <div class="submit"><input type="submit" id="authSubmit" value="Set password" disabled></div>
+    <div class="submit"><input type="submit" id="authSubmit" value="Set password" disabled><span class="pmsg"></span></div>
   </form>
-  <form method="post" enctype="multipart/form-data" action="/update" id="updateForm">
+  <form method="post" enctype="multipart/form-data" action="/update" id="updateForm" onsubmit="return pfSubmit(this,{busy:'Uploading...',okText:'Firmware written',failText:'Not updated',restartUrl:'/'})">
     <div class="group">
       <div class="group-title">Firmware update</div>
       <div class="row"><span class="label">File:</span><span class="value">
         <input type="file" id="updateFile" name="updateFile" required></span></div>
     </div>
-    <div class="submit"><input type="submit" value="Update"></div>
+    <div class="submit"><input type="submit" value="Update"><span class="pmsg"></span></div>
   </form>
   <form method="post" action="/factoryreset" id="resetForm">
     <div class="group">
@@ -737,17 +741,14 @@ R"HTML(
     </div>
     <div class="submit"><input type="submit" id="resetSubmit" value="Factory reset" disabled></div>
   </form>
-  <form method="post" action="/restart" id="restartForm">
+  <form method="post" action="/restart" id="restartForm" onsubmit="return pfSubmit(this,{busy:'Restarting...',okText:'Restart requested',restartUrl:'/'})">
     <div class="group">
       <div class="group-title">Restart</div>
       <div class="row"><span class="label">Confirm:</span><span class="value">
         <input type="checkbox" id="rc" onchange="ID('restartSubmit').disabled=!this.checked" required></span></div>
     </div>
-    <div class="submit"><input type="submit" id="restartSubmit" value="Restart" disabled></div>
+    <div class="submit"><input type="submit" id="restartSubmit" value="Restart" disabled><span class="pmsg"></span></div>
   </form>
-</div>
-<div class="alert-container" id="update-alert" style="display:none">
-  <div class="alert-backdrop"></div><div class="alert-content">Update in progress. Please wait...</div>
 </div>
 )HTML"
 CONFIG_PORTAL_FOOTER
@@ -865,6 +866,8 @@ static const char CONFIG_PORTAL_FACTORYRESET_HTML[] PROGMEM = R"HTML(
 //
 // The first probe is delayed past the deferred restart, or it would find the
 // device still up and send the browser to a page about to disappear.
+// The built-in routes answer their fetch() posts with sendResult(); these
+// pages stay for applications with plain-post routes of their own.
 static const char CONFIG_PORTAL_REBOOT_HTML[] PROGMEM = R"HTML(
 <!DOCTYPE html><html lang="en"><head><meta charset="UTF-8">
 <link rel="stylesheet" href="/css"><title>Rebooting</title>

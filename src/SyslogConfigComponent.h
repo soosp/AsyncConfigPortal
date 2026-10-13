@@ -198,8 +198,8 @@ private:
     void _save(AsyncWebServerRequest* req) {
         SyslogProfile::SyslogConfig c;
         if (!_profile->getConfig(c)) {
-            AsyncConfigPortal::sendProgmem(req, 500, "text/html",
-                                           CONFIG_PORTAL_SAVE_FAILED_HTML);
+            AsyncConfigPortal::sendResult_P(req, 500, "busy", -1,
+                                            PSTR("Busy; nothing was changed."));
             return;
         }
         const SyslogProfile::SyslogConfig before = c;
@@ -221,15 +221,14 @@ private:
             _checkStr(cc, why, sizeof(why));
             _srv->logf(AsyncConfigPortal::LogLevel::Warn, "syslog",
                        PSTR("rejected: %s"), why);
-            AsyncConfigPortal::sendProgmem(req, 400, "text/html",
-                                           CONFIG_PORTAL_SAVE_FAILED_HTML);
+            AsyncConfigPortal::sendResult(req, 400, _checkCode(cc), -1, why);
             return;
         }
         if (!_profile->setConfig(c) || !_profile->saveCfg(_ns)) {
             _srv->logf(AsyncConfigPortal::LogLevel::Error, "syslog",
                        PSTR("could not be saved"));
-            AsyncConfigPortal::sendProgmem(req, 500, "text/html",
-                                           CONFIG_PORTAL_SAVE_FAILED_HTML);
+            AsyncConfigPortal::sendResult_P(req, 500, "storage_error", -1,
+                                            PSTR("Could not be saved."));
             return;
         }
 
@@ -242,8 +241,7 @@ private:
                    ch.enabled ? ", enabled state changed" : "",
                    ch.target  ? ", target changed" : "",
                    ch.filter  ? ", severity or facility changed" : "");
-        AsyncConfigPortal::sendProgmem(req, 200, "text/html",
-                                       CONFIG_PORTAL_SAVED_HTML);
+        AsyncConfigPortal::sendResult(req, 200, "ok");
         if (_onSaved && ch.any()) _onSaved(ch);
     }
 
@@ -306,7 +304,7 @@ private:
             char why[CHECK_STR_SIZE];
             _checkStr(cc, why, sizeof(why));
             _claim().release(req);
-            AsyncConfigPortal::sendResult(req, 400, "refused", -1, why);
+            AsyncConfigPortal::sendResult(req, 400, _checkCode(cc), -1, why);
             return;
         }
         if (!_profile->setConfig(c) || !_profile->saveCfg(_ns)) {
@@ -342,6 +340,18 @@ private:
     }
 
     static constexpr size_t CHECK_STR_SIZE = 32;
+    /// The result code of a check, for the page to tie to its field.
+    static const char* _checkCode(SyslogProfile::ConfigCheck c) {
+        switch (c) {
+            case SyslogProfile::ConfigCheck::Ok:          return "ok";
+            case SyslogProfile::ConfigCheck::NoHost:      return "no_host";
+            case SyslogProfile::ConfigCheck::BadHost:     return "bad_host";
+            case SyslogProfile::ConfigCheck::BadPort:     return "bad_port";
+            case SyslogProfile::ConfigCheck::BadSeverity: return "bad_severity";
+            case SyslogProfile::ConfigCheck::BadFacility: return "bad_facility";
+        }
+        return "refused";
+    }
     // Flash texts copied into the caller's buffer — see MqttConfigComponent.
     static void _checkStr(SyslogProfile::ConfigCheck c, char* out, size_t len) {
         PGM_P p = PSTR("invalid");
