@@ -11,6 +11,12 @@ and this project adheres to
 
 ### Fixed
 
+- `NetConfigComponent` restore: the NTP servers of a backup were checked only
+  after the network profiles had been written, so an invalid NTP server
+  refused the restore with the profiles already changed; and `onSaved()` ran
+  before the NTP servers were applied, with their change missing from the
+  set. They are now checked with the profiles before anything is written,
+  applied last, and marked in the change set `onSaved()` receives
 - The documentation of `NetConfigComponent::wifiCredentialGate()` and
   `loadFromJson()` still described the earlier restore form with a single
   password field, where an empty password meant an open network. The form has

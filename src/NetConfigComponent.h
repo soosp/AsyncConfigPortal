@@ -405,6 +405,34 @@ public:
             st[slot].changed = changed;
         }
 
+#if NTP_PROFILE_ENABLED
+        // The NTP servers, restored once for the device, are validated here
+        // with the profiles: nothing is written if any of them is wrong. An
+        // older file without them leaves the stored ones alone: absence in a
+        // backup means "not carried", not "empty".
+        NtpProfile::NtpConfig ncfg;
+        bool ntpTouched = false;
+        if (_ntp && ntpDoc && _ntp->getConfig(ncfg)) {
+            for (uint8_t t = 0; t < NtpProfile::SERVER_COUNT; t++) {
+                char key[8], val[NTP_VAL_SIZE];
+                snprintf_P(key, sizeof(key), PSTR("ntp%u"), t);
+                const int r = jsonVal(ntpDoc, key, val, sizeof(val));
+                if (r == JSON_INVALID) {
+                    _err(err, errLen, "NTP server %u in the backup is invalid", t);
+                    return false;
+                }
+                if (r >= 0 && strcmp(val, ncfg.server[t]) != 0) {
+                    snprintf_P(ncfg.server[t], sizeof(ncfg.server[t]), PSTR("%s"), val);
+                    ntpTouched = true;
+                }
+            }
+            if (ntpTouched && _ntp->checkConfig(ncfg) != NtpProfile::ConfigCheck::Ok) {
+                _err(err, errLen, "an NTP server in the backup is not valid");
+                return false;
+            }
+        }
+#endif
+
         // -------------------------------------------------------------------------
         // Phase 2 — apply. Every entry has already been validated, so the only
         // remaining failure mode is a profile mutex timeout.
@@ -435,45 +463,20 @@ public:
             changed.mark(p->getInterfaceType());
         }
 
-        // Fired even with an empty change set, matching _handlePost(): consumers
-        // rely on being told that an apply happened but changed nothing.
-        if (_onSaved) _onSaved(changed);
 #if NTP_PROFILE_ENABLED
-        // The NTP servers, restored once for the device. An older file without
-        // them leaves the stored ones alone rather than clearing them: absence
-        // in a backup means "not carried", not "empty".
-        if (_ntp && ntpDoc) {
-            NtpProfile::NtpConfig ncfg;
-            if (_ntp->getConfig(ncfg)) {
-                bool touched = false;
-                for (uint8_t t = 0; t < NtpProfile::SERVER_COUNT; t++) {
-                    char key[8], val[NTP_VAL_SIZE];
-                    snprintf_P(key, sizeof(key), PSTR("ntp%u"), t);
-                    const int r = jsonVal(ntpDoc, key, val, sizeof(val));
-                    if (r == JSON_INVALID) {
-                        _err(err, errLen, "NTP server %u in the backup is invalid", t);
-                        return false;
-                    }
-                    if (r >= 0 && strcmp(val, ncfg.server[t]) != 0) {
-                        snprintf_P(ncfg.server[t], sizeof(ncfg.server[t]),
-                                   PSTR("%s"), val);
-                        touched = true;
-                    }
-                }
-                if (touched) {
-                    if (_ntp->checkConfig(ncfg) != NtpProfile::ConfigCheck::Ok) {
-                        _err(err, errLen, "an NTP server in the backup is not valid");
-                        return false;
-                    }
-                    if (!_ntp->setConfig(ncfg) || !_ntp->saveCfg(_ntpNs)) {
-                        _err(err, errLen, "the NTP servers could not be saved");
-                        return false;
-                    }
-                }
+        if (ntpTouched) {
+            if (!_ntp->setConfig(ncfg) || !_ntp->saveCfg(_ntpNs)) {
+                _err(err, errLen, "the NTP servers could not be saved");
+                return false;
             }
+            changed.markNtp();
         }
 #endif
 
+        // Fired even with an empty change set, matching _handlePost(): consumers
+        // rely on being told that an apply happened but changed nothing. After
+        // the NTP servers, so that their change is in the set.
+        if (_onSaved) _onSaved(changed);
         return true;
     }
 
