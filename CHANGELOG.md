@@ -9,6 +9,8 @@ and this project adheres to
 
 ## [Unreleased]
 
+## [0.13.1] - 2026-10-13
+
 ### Fixed
 
 - MQTT page: the base topic's length limit is the profile's
@@ -461,7 +463,8 @@ none of them has neither dependency.
   an unconfigured one settles on a fixed address when no DHCP answers, and a
   deployed one moves to it on a button press).
 
-[Unreleased]: https://github.com/soosp/AsyncConfigPortal/compare/0.13.0...HEAD
+[Unreleased]: https://github.com/soosp/AsyncConfigPortal/compare/0.13.1...HEAD
+[0.13.1]: https://github.com/soosp/AsyncConfigPortal/compare/0.13.0...0.13.1
 [0.13.0]: https://github.com/soosp/AsyncConfigPortal/compare/0.12.0...0.13.0
 [0.12.0]: https://github.com/soosp/AsyncConfigPortal/compare/0.11.0...0.12.0
 [0.11.0]: https://github.com/soosp/AsyncConfigPortal/compare/0.10.0...0.11.0
