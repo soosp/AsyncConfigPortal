@@ -9,6 +9,15 @@ and this project adheres to
 
 ## [Unreleased]
 
+### Fixed
+
+- The form builders of `/fields.js` (`ifRow()`, `numRow()`, `selectRow()`)
+  put values into the markup unescaped. A stored value with a quote in it
+  (an SSID such as `My "Home"`, an MQTT user name) was cut at the quote, so
+  saving the page stored the truncated value, and markup in a value was
+  rendered as markup. Values, placeholders, titles and option texts are now
+  escaped (`fvEsc()`); labels stay as given, since they come from the page
+
 ## [0.9.0] - 2026-10-12
 
 ### Security

@@ -456,13 +456,18 @@ function markRequired(containerId){
 
 // Row with a text input; opt: {type, ip, host, title, req} sets validation
 // attrs and an error span. data-ip / data-host trigger the engine's checks.
+// Values, placeholders, titles and option texts are escaped: they may be data
+// (an SSID, a user name) and a quote in one would end the attribute early.
+// Labels are not: they come from the page and may carry markup.
+function fvEsc(s){return String(s).replace(/[&<>"']/g,function(c){
+ return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];});}
 function ifRow(idx,label,name,val,ph,opt){
  opt=opt||{};
  var id=name+idx;
- var attr='id="'+id+'" name="'+id+'" value="'+(val||'')+'" placeholder="'+(ph||'')+'"';
+ var attr='id="'+id+'" name="'+id+'" value="'+fvEsc(val||'')+'" placeholder="'+fvEsc(ph||'')+'"';
  if(opt.ip)attr+=' data-ip';
  if(opt.host)attr+=' data-host';
- if(opt.title)attr+=' title="'+opt.title+'"';
+ if(opt.title)attr+=' title="'+fvEsc(opt.title)+'"';
  if(opt.req)attr+=' required';
  return '<div class="row"><span class="label">'+label+':</span><span class="value">'+
   '<input type="'+(opt.type||'text')+'" '+attr+'></span></div>'+
@@ -473,9 +478,9 @@ function ifRow(idx,label,name,val,ph,opt){
 function numRow(idx,label,name,val,min,max,step,title){
  var id=name+idx;
  var a='id="'+id+'" name="'+id+'" type="number"';
- a+=' value="'+((val===undefined||val===null)?'':val)+'"';
+ a+=' value="'+fvEsc((val===undefined||val===null)?'':val)+'"';
  a+=' min="'+min+'" max="'+max+'" step="'+step+'"';
- if(title)a+=' title="'+title+'"';
+ if(title)a+=' title="'+fvEsc(title)+'"';
  return '<div class="row"><span class="label">'+label+':</span><span class="value">'+
   '<input '+a+'></span></div>'+
   '<span class="field-error" id="'+id+'_err"></span>';
@@ -490,15 +495,15 @@ function selectRow(idx,label,name,val,options,opt){
  opt=opt||{};
  var id=name+idx;
  var a='id="'+id+'" name="'+id+'"';
- if(opt.title)a+=' title="'+opt.title+'"';
+ if(opt.title)a+=' title="'+fvEsc(opt.title)+'"';
  if(opt.req)a+=' required';
- var o=opt.ph?'<option value="">'+opt.ph+'</option>':'';
+ var o=opt.ph?'<option value="">'+fvEsc(opt.ph)+'</option>':'';
  options=options||[];
  for(var i=0;i<options.length;i++){
   var it=options[i];
   var v=(it&&it.v!==undefined)?it.v:it;
   var t=(it&&it.t!==undefined)?it.t:v;
-  o+='<option value="'+v+'"'+((''+v)===(''+val)?' selected':'')+'>'+t+'</option>';
+  o+='<option value="'+fvEsc(v)+'"'+((''+v)===(''+val)?' selected':'')+'>'+fvEsc(t)+'</option>';
  }
  return '<div class="row"><span class="label">'+label+':</span><span class="value">'+
   '<select '+a+'>'+o+'</select></span></div>'+
