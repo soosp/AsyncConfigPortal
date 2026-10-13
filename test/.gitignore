@@ -5,3 +5,5 @@ json_harness_san
 *.o
 origin_harness
 origin_harness_san
+result_harness
+result_harness_san

@@ -35,9 +35,18 @@ if errorlevel 1 set RC=1
 echo ------------------------------------------------------------
 echo Building origin check suite ...
 g++ %FLAGS% origin_harness.cpp -o origin_harness.exe
-if errorlevel 1 ( echo BUILD FAILED: origin_harness.cpp & set RC=1 & goto :done )
+if errorlevel 1 ( echo BUILD FAILED: origin_harness.cpp & set RC=1 & goto :result )
 echo Running origin check suite:
 origin_harness.exe
+if errorlevel 1 set RC=1
+
+:result
+echo ------------------------------------------------------------
+echo Building result answer suite ...
+g++ %FLAGS% result_harness.cpp -o result_harness.exe
+if errorlevel 1 ( echo BUILD FAILED: result_harness.cpp & set RC=1 & goto :done )
+echo Running result answer suite:
+result_harness.exe
 if errorlevel 1 set RC=1
 
 :done

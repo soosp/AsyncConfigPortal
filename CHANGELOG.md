@@ -9,6 +9,50 @@ and this project adheres to
 
 ## [Unreleased]
 
+### Added
+
+- Forms posted with `fetch()`, so the page stays and what the user typed is
+  kept: `pfSubmit()` in `/common.js` posts a form (multipart if it has a file
+  input) and shows the answer in a `.pmsg` line below its button, a refused
+  field outlined where the page maps the code to it; `pfMsg()`, `PF_ERR`.
+  An answer that is not JSON is understood too (a 2xx page as success,
+  otherwise its text), so handlers can move over one by one
+- `sendResult()` / `sendResult_P()`: the answer to such a post,
+  `{"result":"ok"}` or the refused code, with an index, a message and a
+  restart flag where they apply. Built in the buffer the JSON endpoints
+  share (no stack, no new static RAM); a variant takes the caller's buffer
+  for longer messages, sized with `resultJsonLen()`. A message that does not
+  fit is cut at a character with "…"; the code never is.
+  `test/result_harness.cpp`: host tests
+- `pfRestarting()`: covers the page while the device restarts, reloads it
+  once the device answers again, and says so if it does not come back at
+  that address
+- `NetConfigComponent::setRestartOnSave()`,
+  `MqttConfigComponent::setRestartOnSave()`: the application tells the
+  component that it restarts after a change, so a restore can say so
+- `.pmsg` in the stylesheet (`docs/CSS.md`)
+
+### Changed
+
+- Backup page: a restore is posted with `fetch()` and answered below its
+  Restore button instead of with a separate page. The "Configuration saved"
+  page was the wrong text for a restore, an error came as a bare text page,
+  and a restore that restarts the device sent the browser back to a page
+  that was gone. A restore that restarts the device now covers the page until
+  it is back, then reloads it. The download is unchanged
+- The Network, MQTT and Syslog restores answer with `sendResult()`: `ok`, or
+  `abandoned` (409), `too_large` (413), `no_file`, `not_a_backup`,
+  `need_password`, `refused` (400), `busy`, `storage_error` (500), with the
+  former text as the message. Applications with a Backup section of their own
+  may keep answering with `CONFIG_PORTAL_SAVED_HTML` or plain text; the page
+  shows those too
+
+### Fixed
+
+- `CONFIG_PORTAL_JSON_ENDPOINT_LEN` was documented as a stack buffer in the
+  request handler. It is one static buffer: raising it costs static RAM, not
+  stack
+
 ## [0.9.2] - 2026-10-13
 
 ### Fixed

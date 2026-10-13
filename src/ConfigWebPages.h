@@ -130,6 +130,10 @@ body {
 .alert-container { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; }
 .alert-backdrop { position: fixed; inset: 0; background: #90a4b4; opacity: 0.7; }
 .alert-content { position: relative; background: var(--card-bg); padding: 1.2em 1.6em; border-radius: 10px; border: 2px solid var(--header-bg); }
+/* fetch() answer below a button; its height keeps the button still */
+.pmsg { display: block; flex-basis: 100%; min-height: 1.3em; margin-top: 0.3em; font-size: 0.92em; }
+.pmsg.ok { color: var(--ok); }
+.pmsg.bad { color: var(--alarm); font-weight: 600; }
 
 /* Connection watchdog. The banner states the problem; dimming the values makes
    staleness visible at a glance, which a banner alone does not - the last known
@@ -283,6 +287,67 @@ function heartbeat(){
 }
 function initCommon(){getJSON('/menu',buildMenu);getJSON('/project',setProject);
  heartbeat();setInterval(heartbeat,10000);}
+)JS"
+// --- Forms posted with fetch() ----------------------------------------------
+// The page stays: what the user typed is still there after a refusal, and the
+// answer appears in the .pmsg line below the form's button. The device answers
+// {"result":"ok"} or a machine name, with the item's index, a message and a
+// restart flag where they apply (AsyncConfigPortal::sendResult()). Comments
+// stay out here, in C++, so that they cost no flash.
+//
+// PF_ERR: texts for the codes any page may get. pfParts(): the button and
+// answer line of a form or box (none: the page). pfLabel(): "Label: " of a
+// field's row.
+R"JS(var PF_ERR={busy:'The device is busy: try again',
+abandoned:'Another upload took over: nothing was changed, try again',
+too_large:'The file is larger than this device can take: nothing was changed',
+no_file:'No file was chosen',
+storage_error:'Applied, but it could not be stored: it is lost at the next restart',
+http_401:'Login required: reload the page',http_403:'Refused by the device (403)'};
+function pfParts(c){c=c||document;return{b:c.querySelector('input[type=submit],button[type=submit],#saveBtn'),m:c.querySelector('.pmsg')};}
+function pfMsg(t,k,c){var e=pfParts(c).m;if(!e)return;e.textContent=t||'';e.className='pmsg'+(k?' '+k:'');}
+function pfLabel(e){var r=e.closest('.row'),l=r&&r.querySelector('.label');return l?l.textContent.replace(/[:*\s]+$/,'')+': ':'';}
+)JS"
+// pfSubmit(f, opts): posts form f; use as onsubmit="return pfSubmit(this)".
+// opts: url (default: the form's action), map {result: [field id, text], or
+// function(index) returning one}, busy, okText, failText, done(answer).
+// A file input makes it multipart, otherwise urlencoded, as a plain post.
+// An answer that is not JSON (a handler still sending a page or a line of
+// text) is read as ok for a 2xx, its text otherwise. A refused field gets the
+// outline only, its message goes below the button, which does not move: a
+// message under the field would vanish on blur and move the button from
+// under the pointer as it is clicked.
+R"JS(function pfSubmit(f,o){o=o||{};var b=pfParts(f).b,M=function(t,k){pfMsg(t,k,f);},F=o.failText||'Not saved';
+var d=new FormData(f),y=f.querySelector('input[type=file]')?d:new URLSearchParams(d);
+if(b)b.disabled=true;M(o.busy||'Saving...','');
+fetch(o.url||f.getAttribute('action'),{method:'POST',body:y})
+.then(function(r){netMark(true);var c=r.headers.get('Content-Type')||'';
+if(c.indexOf('json')>=0)return r.json().catch(function(){return{result:'http_'+r.status};});
+return r.text().then(function(t){if(r.ok)return{result:'ok'};
+if(c.indexOf('html')>=0)t=new DOMParser().parseFromString(t,'text/html').body.textContent;
+return{result:'http_'+r.status,message:t.trim()};});})
+.then(function(a){if(b)b.disabled=false;
+if(a.result=='ok'){if(a.restart){pfRestarting((a.message||o.okText||'Saved')+'. The device is restarting...');return;}
+M(a.message||o.okText||'Saved','ok');if(o.done)o.done(a);return;}
+var m=o.map&&o.map[a.result];if(typeof m=='function')m=m(a.index);
+if(m&&ID(m[0])){var e=ID(m[0]);if(typeof fvFail=='function')fvFail(e,'');e.focus();M(F+': '+pfLabel(e)+m[1],'bad');return;}
+M(a.message||PF_ERR[a.result]||(F+': '+a.result),'bad');})
+.catch(function(){if(b)b.disabled=false;netMark(false);M('No answer from the device: '+F.toLowerCase(),'bad');});
+return false;}
+)JS"
+// pfRestarting(text): covers the page while the device restarts and reloads
+// it once the device answers again: after it was seen gone, or after 20 s
+// (a restart quicker than the 2 s poll). After 60 s it says the device may be
+// at a new address, and keeps waiting.
+R"JS(function pfRestarting(t){var d=ID('pfOverlay');
+if(!d){d=document.createElement('div');d.id='pfOverlay';d.className='alert-container';
+d.innerHTML='<div class="alert-backdrop"></div><div class="alert-content" id="pfText"></div>';document.body.appendChild(d);}
+ID('pfText').textContent=t;d.style.display='';var t0=Date.now(),g=false;
+function p(){var x=new XMLHttpRequest();x.onreadystatechange=function(){if(x.readyState!=4)return;var e=Date.now()-t0;
+if(x.status!==0&&(g||e>20000)){location.reload();return;}if(x.status===0)g=true;
+if(e>60000)ID('pfText').textContent='The device has not come back at this address. If its network settings changed, open it at the new address.';
+setTimeout(p,2000);};x.open('GET','/chkauth',true);x.timeout=2000;x.send();}
+setTimeout(p,2000);}
 )JS";
 
 // Field toolkit: the validation engine and the row builders. Served separately
@@ -695,6 +760,11 @@ R"HTML(
 // Deliberately shows the sections even when there is only one: the point of the
 // page is that a user can see everything that offers a backup, so that saving
 // three of four is a visible omission rather than a silent one.
+//
+// The download is a plain post (the browser saves the file). The restore is
+// posted with fetch() (pfSubmit()) and answered below its button, so the page
+// stays and the sections can be restored one after the other; a restore that
+// restarts the device covers the page until it is back.
 static const char CONFIG_PORTAL_BACKUP_HTML[] PROGMEM = R"HTML(
 <!DOCTYPE html><html lang="en"><head>
 <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -723,19 +793,26 @@ function section(s){
  var t=esc(s.title);
  var h='<form method="post" action="'+esc(s.backup)+'">'+
    '<div class="submit"><input type="submit" value="Download '+t+'"></div></form>';
- h+='<form method="post" action="'+esc(s.restore)+'" enctype="multipart/form-data">'+
+ h+='<form class="restore" method="post" action="'+esc(s.restore)+'" enctype="multipart/form-data">'+
    '<div class="group"><div class="group-title">Restore '+t+'</div>'+
    '<div class="row"><span class="label">File:</span><span class="value">'+
    '<input type="file" name="file" required></span></div>';
  var fs=s.fields||[];
  for(var i=0;i<fs.length;i++) h+=field(fs[i]);
- h+='</div><div class="submit"><input type="submit" value="Restore"></div></form>';
+ h+='</div><div class="submit"><input type="submit" value="Restore">'+
+   '<span class="pmsg"></span></div></form>';
  return h;
+}
+function restore(f){
+ return pfSubmit(f,{busy:'Restoring...',okText:'Restored',failText:'Not restored',
+  done:function(){f.reset();}});
 }
 function setData(list){
  var h='';
  for(var k=0;k<list.length;k++) h+=section(list[k]);
  ID('sections').innerHTML=h;
+ var fs=document.querySelectorAll('form.restore');
+ for(var i=0;i<fs.length;i++) fs[i].onsubmit=function(){return restore(this);};
 }
 function init(){initCommon();getJSON('/backupdata',setData);}
 </script>

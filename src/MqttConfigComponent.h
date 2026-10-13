@@ -145,6 +145,18 @@ public:
     void onSaved(SavedFn fn) { _onSaved = fn; }
 
     /**
+     * @brief Tells the component that the application restarts the device
+     *        when onSaved() reports a connection change (the client is built
+     *        from these settings).
+     *
+     * With it set, a restore answers with "restart" (a restore reports every
+     * field as changed), and the Backup page covers itself until the device
+     * is back, then reloads. Off by default: then the page only says
+     * "Restored".
+     */
+    void setRestartOnSave(bool restarts) { _restartOnSave = restarts; }
+
+    /**
      * @brief Registers the page, its data endpoint and its POST handler.
      *
      * @param srv        The portal to attach to.
@@ -251,6 +263,7 @@ private:
     AsyncConfigPortal* _srv     = nullptr;
     const char*        _ns      = nullptr;
     SavedFn            _onSaved;
+    bool               _restartOnSave = false;   // setRestartOnSave()
     /// Whether the page offers the Home Assistant discovery switch at all.
     /// Off by default: a project with no discovery publisher should not show a
     /// control that does nothing.
@@ -423,21 +436,21 @@ private:
     /// Validates the whole document, then applies it — or applies nothing.
     void _restoreDone(AsyncWebServerRequest* req) {
         if (!_claim().owns(req)) {
-            AsyncConfigPortal::sendProgmemLine(req, 409, "text/plain",
+            AsyncConfigPortal::sendResult_P(req, 409, "abandoned", -1,
                 PSTR("This upload was abandoned while another one started. Nothing was "
                      "changed; please try again."));
             return;
         }
         if (_claim().overflowed()) {
             _claim().release(req);
-            AsyncConfigPortal::sendProgmemLine(req, 413, "text/plain",
+            AsyncConfigPortal::sendResult_P(req, 413, "too_large", -1,
                 PSTR("The uploaded file is larger than this firmware can hold. Nothing "
                      "was changed."));
             return;
         }
         if (_claim().size() == 0) {
             _claim().release(req);
-            AsyncConfigPortal::sendProgmemLine(req, 400, "text/plain",
+            AsyncConfigPortal::sendResult_P(req, 400, "no_file", -1,
                 PSTR("No file was uploaded."));
             return;
         }
@@ -445,7 +458,7 @@ private:
         JsonSpan doc = jsonRoot(_claim().data(), _claim().size());
         if (!jsonValidate(doc)) {
             _claim().release(req);
-            AsyncConfigPortal::sendProgmemLine(req, 400, "text/plain",
+            AsyncConfigPortal::sendResult_P(req, 400, "not_a_backup", -1,
                 PSTR("The file is not a valid MQTT backup. Nothing was changed."));
             return;
         }
@@ -453,7 +466,7 @@ private:
         MqttProfile::MqttConfig c;
         if (!_profile->getConfig(c)) {
             _claim().release(req);
-            AsyncConfigPortal::sendProgmemLine(req, 500, "text/plain",
+            AsyncConfigPortal::sendResult_P(req, 500, "busy", -1,
                 PSTR("Busy; nothing was changed."));
             return;
         }
@@ -502,7 +515,7 @@ private:
             const bool sameUser = (strcmp(c.user, before.user) == 0);
             if (!sameUser || before.password[0] == '\0') {
                 _claim().release(req);
-                AsyncConfigPortal::sendProgmemLine(req, 400, "text/plain",
+                AsyncConfigPortal::sendResult_P(req, 400, "need_password", -1,
                     PSTR("This backup uses a username, and the broker password "
                          "is not in the file. Enter it above, or untick the box "
                          "if the broker wants no password. Nothing was changed."));
@@ -519,18 +532,19 @@ private:
             char why[CHECK_STR_SIZE];
             _checkStr(cc, why, sizeof(why));
             _claim().release(req);
-            req->send(400, "text/plain", why);
+            AsyncConfigPortal::sendResult(req, 400, "refused", -1, why);
             return;
         }
         if (!_profile->setConfig(c) || !_profile->saveCfg(_ns)) {
             _claim().release(req);
-            AsyncConfigPortal::sendProgmemLine(req, 500, "text/plain",
+            AsyncConfigPortal::sendResult_P(req, 500, "storage_error", -1,
                 PSTR("Could not be saved. Nothing was changed."));
             return;
         }
         _claim().release(req);
         _srv->logf(AsyncConfigPortal::LogLevel::Info, "mqtt", PSTR("restored"));
-        AsyncConfigPortal::sendProgmem(req, 200, "text/html", CONFIG_PORTAL_SAVED_HTML);
+        // The page covers itself until the device is back, if it restarts
+        AsyncConfigPortal::sendResult(req, 200, "ok", -1, nullptr, _restartOnSave);
 
         if (_onSaved) {
             Changed ch; ch.enabled = true; ch.connection = true;

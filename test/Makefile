@@ -1,4 +1,5 @@
-# Makefile — builds and runs the JsonReadUtils host tests.
+# Makefile — builds and runs the host tests (JsonReadUtils, origin check,
+# result answer).
 #
 # Requires a C++17 compiler (g++ or clang++) and GNU make. From this folder:
 #   make            build and run the suite
@@ -15,14 +16,15 @@ SANFLAGS := -fsanitize=address,undefined -fno-omit-frame-pointer
 
 HARNESS := json_harness
 ORIGIN  := origin_harness
+RESULT  := result_harness
 
-.PHONY: all run origin san clean
+.PHONY: all run origin result san clean
 all: run
 
 $(HARNESS): json_harness.cpp
 	$(CXX) $(CXXFLAGS) $(INCLUDES) $< -o $@
 
-run: $(HARNESS) origin
+run: $(HARNESS) origin result
 	@echo "------------------------------------------------------------"
 	@echo "JsonReadUtils suite:"
 	@./$(HARNESS)
@@ -35,6 +37,14 @@ origin: $(ORIGIN)
 	@echo "Origin check suite:"
 	@./$(ORIGIN)
 
+$(RESULT): result_harness.cpp ../src/detail/result_json.h
+	$(CXX) $(CXXFLAGS) $(INCLUDES) $< -o $@
+
+result: $(RESULT)
+	@echo "------------------------------------------------------------"
+	@echo "Result answer suite:"
+	@./$(RESULT)
+
 # The parser eats uploaded, untrusted input, so the sanitized run is the one
 # that actually justifies hand-writing it rather than pulling in a dependency.
 san: json_harness.cpp
@@ -44,4 +54,4 @@ san: json_harness.cpp
 	@./$(HARNESS)_san
 
 clean:
-	@rm -f $(HARNESS) $(HARNESS)_san $(HARNESS).exe $(HARNESS)_san.exe $(ORIGIN) $(ORIGIN).exe
+	@rm -f $(HARNESS) $(HARNESS)_san $(HARNESS).exe $(HARNESS)_san.exe $(ORIGIN) $(ORIGIN).exe $(RESULT) $(RESULT).exe

@@ -285,6 +285,7 @@ public:
     bool loadFromJson(JsonSpan doc, AsyncWebServerRequest* req,
                       char* err, size_t errLen) {
         if (errLen) err[0] = '\0';
+        _lastChanged = false;
 
         // The document is an object now: the profiles array beside the
         // device-level NTP servers, rather than the servers repeated inside
@@ -476,6 +477,7 @@ public:
         // Fired even with an empty change set, matching _handlePost(): consumers
         // rely on being told that an apply happened but changed nothing. After
         // the NTP servers, so that their change is in the set.
+        _lastChanged = changed.any();
         if (_onSaved) _onSaved(changed);
         return true;
     }
@@ -541,6 +543,18 @@ public:
 
     /** @brief Sets the callback fired after a successful save. */
     void onSaved(SavedCb cb) { _onSaved = std::move(cb); }
+
+    /**
+     * @brief Tells the component that the application restarts the device
+     *        when onSaved() reports a change (as most do: the addressing and
+     *        the hostname are bound into the running interfaces).
+     *
+     * The component cannot know this on its own. With it set, a restore that
+     * changed something answers with "restart", and the Backup page covers
+     * itself until the device is back, then reloads. Off by default: then the
+     * page only says "Restored".
+     */
+    void setRestartOnSave(bool restarts) { _restartOnSave = restarts; }
 
     /**
      * @brief Registers the /net page and its REST endpoints on the server.
@@ -1213,6 +1227,8 @@ private:
     // problem it exists to report.
     uint8_t  _dropped = 0;
     SavedCb  _onSaved;
+    bool     _restartOnSave = false;   // setRestartOnSave()
+    bool     _lastChanged   = false;   // the last loadFromJson() changed something
 
     static constexpr uint32_t RESTORE_IDLE_MS = NET_CONFIG_RESTORE_IDLE_MS;
 
@@ -1297,21 +1313,21 @@ private:
     /** @brief Validates and applies the accumulated document. */
     void _handleRestoreDone(AsyncWebServerRequest* req) {
         if (!_claim().owns(req)) {
-            AsyncConfigPortal::sendProgmemLine(req, 409, "text/plain",
+            AsyncConfigPortal::sendResult_P(req, 409, "abandoned", -1,
                 PSTR("This upload was abandoned while another one started. Nothing was "
                      "changed; please try again."));
             return;
         }
         if (_claim().overflowed()) {
             _claim().release(req);
-            AsyncConfigPortal::sendProgmemLine(req, 413, "text/plain",
+            AsyncConfigPortal::sendResult_P(req, 413, "too_large", -1,
                 PSTR("The uploaded file is larger than this firmware can hold. Nothing "
                      "was changed."));
             return;
         }
         if (_claim().size() == 0) {
             _claim().release(req);
-            AsyncConfigPortal::sendProgmemLine(req, 400, "text/plain",
+            AsyncConfigPortal::sendResult_P(req, 400, "no_file", -1,
                 PSTR("No file was uploaded."));
             return;
         }
@@ -1319,29 +1335,30 @@ private:
         char* buf = _netDataBuffer();
         JsonSpan doc = jsonRoot(buf, _claim().size());
 
-        // Errors go out as text/plain rather than as an HTML page. The messages
-        // quote values from the document — an SSID, for instance — and an SSID
-        // is allowed to contain '<'. Sending them as markup would need escaping
-        // on a path that only ever runs when something already went wrong;
-        // plain text has no injection surface at all.
-        char err[160];
+        // The messages quote values from the document — an SSID, for
+        // instance, which may contain '<' or a quote. They travel as a JSON
+        // string (escaped there) and the page shows them as text, never as
+        // markup.
+        char err[AsyncConfigPortal::RESULT_MESSAGE_LEN + 1];
 
         if (!jsonValidate(doc)) {
             _claim().release(req);
-            AsyncConfigPortal::sendProgmemLine(req, 400, "text/plain",
+            AsyncConfigPortal::sendResult_P(req, 400, "not_a_backup", -1,
                 PSTR("The file is not a valid configuration backup. "
                      "Nothing was changed."));
             return;
         }
         if (!loadFromJson(doc, req, err, sizeof(err))) {
             _claim().release(req);
-            req->send(400, "text/plain",
-                      err[0] ? err : "The configuration could not be restored.");
+            AsyncConfigPortal::sendResult(req, 400, "refused", -1,
+                err[0] ? err : "The configuration could not be restored.");
             return;
         }
 
         _claim().release(req);
-        AsyncConfigPortal::sendProgmem(req, 200, "text/html", CONFIG_PORTAL_SAVED_HTML);
+        // The page covers itself until the device is back, if it restarts
+        AsyncConfigPortal::sendResult(req, 200, "ok", -1, nullptr,
+                                      _restartOnSave && _lastChanged);
     }
 
     /**

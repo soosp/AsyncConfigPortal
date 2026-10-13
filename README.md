@@ -66,12 +66,25 @@ the built-in ones included, so ten redefined colour variables restyle the whole
 portal; `setCss()` replaces the sheet outright if you want that far.
 [`docs/CSS.md`](docs/CSS.md) documents both, and the class contract.
 
-Saving is answered with the shared result pages,
-`CONFIG_PORTAL_SAVED_HTML` and `CONFIG_PORTAL_SAVE_FAILED_HTML`: both return to
-the page the POST came from, so a component serves them as they are and does not
-name its own path. (The Other page's own results — reboot, factory reset — go
-elsewhere on purpose: after a restart, "back where you came from" is the wrong
-answer.)
+A form can be posted two ways.
+
+- **With `fetch()`**, so the page stays: `onsubmit="return pfSubmit(this)"`
+  (from `/common.js`) posts the form, and the handler answers with
+  `sendResult(req, code, "ok")` or the name of what it refused — with the
+  item's index, a message and a restart flag where they apply. The answer
+  appears in a `<span class="pmsg">` below the button, a refused field can be
+  outlined (`map`), and what the user typed stays. A restart flag covers the
+  page until the device is back. The Backup page restores this way.
+  `sendResult()` builds the answer in the buffer the JSON endpoints share; a
+  message longer than `RESULT_MESSAGE_LEN` goes with a buffer of the
+  application's own, sized with `resultJsonLen()`.
+- **As a plain post**, answered with the shared result pages
+  `CONFIG_PORTAL_SAVED_HTML` and `CONFIG_PORTAL_SAVE_FAILED_HTML`: both return
+  to the page the POST came from, so a component serves them as they are and
+  does not name its own path. (The Other page's own results — reboot, factory
+  reset — go elsewhere on purpose: after a restart, "back where you came from"
+  is the wrong answer.) `pfSubmit()` understands these answers too, so a
+  handler can be moved over later.
 
 Two things worth knowing when you compose a page:
 
@@ -254,12 +267,17 @@ netConfig.addProfile(ethProfile, "eth");    // one or more
 // time server a fallback cannot reach; this page does not edit those.
 netConfig.setNtpProfile(ntpProfile, "ntp");
 
+netConfig.onSaved([](const NetConfigComponent::NetChangeSet& c) {
+    if (c.any()) restartPending = true;     // restarted from loop(): the answer goes out first
+});
+netConfig.setRestartOnSave(true);           // says so to the Backup page
 netConfig.attach(web, AsyncConfigPortal::MENU_NET, "Network", /*withBackup=*/true);
 
 mqtt.setProfile(mqttProfile, "mqtt");       // exactly one
 mqtt.onSaved([](const MqttConfigComponent::Changed& c) {
-    if (c.connection) ESP.restart();        // the client is built from these
+    if (c.connection) restartPending = true; // the client is built from these
 });
+mqtt.setRestartOnSave(true);
 mqtt.attach(web, AsyncConfigPortal::MENU_NET - 1, "MQTT", /*withBackup=*/true);
 
 syslogPage.setProfile(syslogProfile, "syslog");
@@ -273,6 +291,13 @@ None of them owns a client or a connection: they save, and report what changed.
 What to do about it is the application's call, since the client belongs to it —
 a restart for an MQTT client that was built from the settings, an in-place
 re-read for a syslog sender, which holds no connection.
+
+A restart is best done from `loop()`, a moment after the callback, so that the
+answer to the save gets out first. `setRestartOnSave(true)` tells the Network
+or MQTT component that the application restarts: a restore that changes
+something then covers the Backup page with "The device is restarting" until the
+device answers again, and reloads it. The component cannot know this by itself;
+without the call the page only says "Restored".
 
 #### Reaching a wired device that has no address anyone knows
 

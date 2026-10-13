@@ -596,6 +596,9 @@ void setup() {
     //     backup never contains one — that is what keeps the passphrase
     //     unreadable through the web interface. Supply it in the Restore form,
     //     or untick "requires password" for an open network.
+    // The restart policy above, told to the Backup page: a restore that
+    // changes something covers the page until the device is back.
+    netConfig.setRestartOnSave(true);
     // attach(portal, menu order, menu label, with a Backup section)
     netConfig.attach(web, AsyncConfigPortal::MENU_NET, "Network", true);
     // Live status next to the configuration: what the device is actually on,
@@ -621,6 +624,7 @@ void setup() {
             }
         }
     });
+    mqttPage.setRestartOnSave(true);   // the restart above, for the Backup page
     mqttPage.attach(web, AsyncConfigPortal::MENU_NET - 1, "MQTT", true);
 
     // The status page shows what NetworkManager knows; the MQTT state is this

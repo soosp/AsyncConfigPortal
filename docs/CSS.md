@@ -194,6 +194,7 @@ layout system; the built-in pages use nothing else.
 |`.field-error`|field builder|the per-field message; **hidden by default**, the engine sets `display`|
 |`.hint`|page|explanatory line under a field, in muted text|
 |`.submit`|page|wrapper around the submit control|
+|`.pmsg`, `.pmsg.ok`, `.pmsg.bad`|`pfSubmit()`|the answer line below a form's button; keeps its height when empty|
 
 `.field-error` being `display:none` in the sheet is load-bearing: the engine
 shows and hides it, so a replacement must keep it hidden by default or every
@@ -230,7 +231,7 @@ not "hide part of the structure", so they are left as they are.
 |`.dim`|page|settings that are stored but not currently in effect|
 |`.offline`|watchdog|the "device not responding" banner; **hidden by default**|
 |`body.stale`|watchdog|dims `.value`, `.card` and `#clock` while offline|
-|`.alert-container`, `.alert-backdrop`, `.alert-content`|page|modal dialog parts|
+|`.alert-container`, `.alert-backdrop`, `.alert-content`|page, `pfRestarting()`|modal dialog parts; also the cover while the device restarts|
 
 `.dim` is how a page shows settings that are switched off. The alternative —
 `disabled` on the inputs — looks the same and behaves differently: a disabled

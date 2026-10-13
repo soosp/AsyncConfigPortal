@@ -8,6 +8,7 @@
 #include <ESPAsyncWebServer.h>
 #include <HttpDigestAuth.h>
 #include "FirmwareMarker.h"   // FIRMWARE_VERSION, the cache validator
+#include "detail/result_json.h" // the answer to a fetch() post
 #if defined(ARDUINO_ARCH_ESP8266)
 #  include <Ticker.h>          // one-shot restart timer (no FreeRTOS on ESP8266)
 #  include <Schedule.h>        // hands the restart back to the cont context
@@ -22,8 +23,11 @@
 // two DNS servers each, a long hostname and a 32-character SSID the document
 // already reaches ~585 characters, so 512 was not enough for that combination
 // (the provider returns false and the endpoint answers HTTP 500 rather than
-// truncating, so the page simply fails to load). This is a stack buffer in the
-// request handler, so raising it costs task stack, not heap.
+// truncating, so the page simply fails to load). It is one static buffer,
+// shared by these endpoints and by sendResult() (never in use by two at once:
+// the handlers run in one task), so raising it costs static RAM, not heap or
+// stack. sendResult() needs less than the default (resultJsonLen()); the
+// buffer is never made smaller than that.
 #  define CONFIG_PORTAL_JSON_ENDPOINT_LEN 768
 #endif
 
@@ -661,6 +665,64 @@ public:
         req->send(req->beginResponse(code, type,
                                      (const uint8_t*)body, strlen_P(body)));
     }
+
+    // -------------------------------------------------------------------------
+    // Answers to forms posted with fetch() (pfSubmit() in /common.js)
+    // -------------------------------------------------------------------------
+
+    /// Longest result code ("ok", "bad_port", "storage_error", ...).
+    static constexpr size_t RESULT_CODE_LEN = 31;
+    /// Longest message the library's own components send. An application
+    /// with longer ones passes its own buffer (see sendResult()).
+    static constexpr size_t RESULT_MESSAGE_LEN = 160;
+
+    /**
+     * @brief The longest answer with a message of @p messageLen bytes: the
+     *        frame, a code of RESULT_CODE_LEN and the message escaped (counted
+     *        twice). Size a caller buffer as resultJsonLen(n) + 1.
+     */
+    static constexpr size_t resultJsonLen(size_t messageLen) {
+        return sizeof(acp_detail::RESULT_JSON_FRAME) - 1 + RESULT_CODE_LEN + 2 * messageLen;
+    }
+
+    /**
+     * @brief Answers a form posted with fetch():
+     *        `{"result":"ok"}`, or `{"result":"bad_port","index":1,
+     *        "message":"...","restart":true}` with the parts that apply.
+     *
+     * The page (pfSubmit()) ties @p result to a field where it knows the
+     * code, shows @p message otherwise, and with @p restart covers the page
+     * until the device is back. The status code is the request's outcome as
+     * with a plain form: 200 saved, 400 refused, 409/503 busy, 413 too large,
+     * 500 applied but not stored.
+     *
+     * Built in the buffer the JSON endpoints share, then copied by the
+     * server into its response, so no stack buffer and no new static RAM. A
+     * message longer than RESULT_MESSAGE_LEN may be cut (at a character, with
+     * "…"); the code never is.
+     *
+     * @param result  Machine name, at most RESULT_CODE_LEN bytes.
+     * @param index   The item the answer refers to; -1 for none.
+     * @param message Text for the user (RAM); null for none.
+     * @param restart The device restarts to apply what was saved.
+     */
+    static void sendResult(AsyncWebServerRequest* req, int code, const char* result,
+                           int16_t index = -1, const char* message = nullptr,
+                           bool restart = false);
+
+    /// sendResult() with the message in flash: a PSTR() literal.
+    static void sendResult_P(AsyncWebServerRequest* req, int code, const char* result,
+                             int16_t index, PGM_P message, bool restart = false);
+
+    /**
+     * @brief sendResult() built in the caller's buffer, for messages longer
+     *        than RESULT_MESSAGE_LEN (a list that grows with the device's
+     *        size, for instance). Size @p buf as resultJsonLen(longest) + 1
+     *        from the application's own bounds; it is free again on return.
+     */
+    static void sendResult(AsyncWebServerRequest* req, int code, const char* result,
+                           int16_t index, const char* message, bool restart,
+                           char* buf, size_t size);
 
     /**
      * @brief Build a chunked response that streams a RAM buffer without copying

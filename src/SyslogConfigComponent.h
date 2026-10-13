@@ -258,35 +258,35 @@ private:
     /// Validates the whole document, then applies it — or applies nothing.
     void _restoreDone(AsyncWebServerRequest* req) {
         if (!_claim().owns(req)) {
-            AsyncConfigPortal::sendProgmemLine(req, 409, "text/plain",
+            AsyncConfigPortal::sendResult_P(req, 409, "abandoned", -1,
                 PSTR("This upload was abandoned while another one started. Nothing was "
                      "changed; please try again."));
             return;
         }
         if (_claim().overflowed()) {
             _claim().release(req);
-            AsyncConfigPortal::sendProgmemLine(req, 413, "text/plain",
+            AsyncConfigPortal::sendResult_P(req, 413, "too_large", -1,
                 PSTR("The uploaded file is larger than this firmware can hold. Nothing "
                      "was changed."));
             return;
         }
         if (_claim().size() == 0) {
             _claim().release(req);
-            AsyncConfigPortal::sendProgmemLine(req, 400, "text/plain",
+            AsyncConfigPortal::sendResult_P(req, 400, "no_file", -1,
                 PSTR("No file was uploaded."));
             return;
         }
         JsonSpan doc = jsonRoot(_claim().data(), _claim().size());
         if (!jsonValidate(doc)) {
             _claim().release(req);
-            AsyncConfigPortal::sendProgmemLine(req, 400, "text/plain",
+            AsyncConfigPortal::sendResult_P(req, 400, "not_a_backup", -1,
                 PSTR("The file is not a valid syslog backup. Nothing was changed."));
             return;
         }
         SyslogProfile::SyslogConfig c;
         if (!_profile->getConfig(c)) {
             _claim().release(req);
-            AsyncConfigPortal::sendProgmemLine(req, 500, "text/plain",
+            AsyncConfigPortal::sendResult_P(req, 500, "busy", -1,
                 PSTR("Busy; nothing was changed."));
             return;
         }
@@ -306,18 +306,18 @@ private:
             char why[CHECK_STR_SIZE];
             _checkStr(cc, why, sizeof(why));
             _claim().release(req);
-            req->send(400, "text/plain", why);
+            AsyncConfigPortal::sendResult(req, 400, "refused", -1, why);
             return;
         }
         if (!_profile->setConfig(c) || !_profile->saveCfg(_ns)) {
             _claim().release(req);
-            AsyncConfigPortal::sendProgmemLine(req, 500, "text/plain",
+            AsyncConfigPortal::sendResult_P(req, 500, "storage_error", -1,
                 PSTR("Could not be saved. Nothing was changed."));
             return;
         }
         _claim().release(req);
         _srv->logf(AsyncConfigPortal::LogLevel::Info, "syslog", PSTR("restored"));
-        AsyncConfigPortal::sendProgmem(req, 200, "text/html", CONFIG_PORTAL_SAVED_HTML);
+        AsyncConfigPortal::sendResult(req, 200, "ok");
         if (_onSaved) {
             Changed ch; ch.enabled = true; ch.target = true; ch.filter = true;
             _onSaved(ch);           // a restore may have changed anything

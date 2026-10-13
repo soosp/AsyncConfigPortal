@@ -114,10 +114,19 @@ namespace {
 //
 // Consequence for providers: the buffer is scratch space. Do not retain a
 // pointer to it beyond the provider call.
+//
+// sendResult() builds its answers here too, so the buffer is at least as
+// large as the longest answer with one of the library's own messages. That
+// is below the default; providers are still held to JSON_ENDPOINT_LEN.
+constexpr size_t JSON_BUF_LEN =
+    AsyncConfigPortal::JSON_ENDPOINT_LEN > AsyncConfigPortal::resultJsonLen(
+                                               AsyncConfigPortal::RESULT_MESSAGE_LEN)
+        ? AsyncConfigPortal::JSON_ENDPOINT_LEN
+        : AsyncConfigPortal::resultJsonLen(AsyncConfigPortal::RESULT_MESSAGE_LEN);
 #ifdef CONFIG_PORTAL_JSON_BUF_IN_PSRAM
 EXT_RAM_BSS_ATTR
 #endif
-char g_jsonBuf[AsyncConfigPortal::JSON_ENDPOINT_SIZE];
+char g_jsonBuf[JSON_BUF_LEN + 1];
 
 std::atomic_flag g_jsonBusy = ATOMIC_FLAG_INIT;
 
@@ -176,7 +185,7 @@ bool AsyncConfigPortal::addJsonEndpoint(const char* path, JsonProvider provider,
 
             // A JSON exceeding the buffer is reported as HTTP 500 rather than
             // silently truncated.
-            bool ok = provider && provider(g_jsonBuf, sizeof(g_jsonBuf));
+            bool ok = provider && provider(g_jsonBuf, JSON_ENDPOINT_SIZE);
             if (ok) {
                 // send() copies the body into the response object, so the buffer
                 // is free again as soon as this returns.
@@ -188,6 +197,53 @@ bool AsyncConfigPortal::addJsonEndpoint(const char* path, JsonProvider provider,
             g_jsonBusy.clear(std::memory_order_release);
         });
     return true;
+}
+
+// -----------------------------------------------------------------------------
+// Answers to fetch() posts
+// -----------------------------------------------------------------------------
+
+namespace {
+
+// Sends the answer built in buf, or a bare code if it could not be built.
+void sendResultIn(AsyncWebServerRequest* req, int code, const char* result, int16_t index,
+                  const char* message, bool inFlash, bool restart, char* buf, size_t size) {
+    const size_t n = acp_detail::buildResultJson(buf, size, result, index, message,
+                                                 inFlash, restart);
+    // send() copies the body into the response, so buf is free on return
+    req->send(code, "application/json", n ? buf : "{\"result\":\"error\"}");
+}
+
+void sendResultShared(AsyncWebServerRequest* req, int code, const char* result,
+                      int16_t index, const char* message, bool inFlash, bool restart) {
+    // As in the JSON endpoints: under the single-task invariant this never
+    // fails; if it ever did, a visible "busy" beats a data race
+    if (g_jsonBusy.test_and_set(std::memory_order_acquire)) {
+        req->send(503, "application/json", "{\"result\":\"busy\"}");
+        return;
+    }
+    sendResultIn(req, code, result, index, message, inFlash, restart, g_jsonBuf,
+                 sizeof(g_jsonBuf));
+    g_jsonBusy.clear(std::memory_order_release);
+}
+
+}  // namespace
+
+void AsyncConfigPortal::sendResult(AsyncWebServerRequest* req, int code, const char* result,
+                                   int16_t index, const char* message, bool restart) {
+    sendResultShared(req, code, result, index, message, false, restart);
+}
+
+void AsyncConfigPortal::sendResult_P(AsyncWebServerRequest* req, int code,
+                                     const char* result, int16_t index, PGM_P message,
+                                     bool restart) {
+    sendResultShared(req, code, result, index, message, true, restart);
+}
+
+void AsyncConfigPortal::sendResult(AsyncWebServerRequest* req, int code, const char* result,
+                                   int16_t index, const char* message, bool restart,
+                                   char* buf, size_t size) {
+    sendResultIn(req, code, result, index, message, false, restart, buf, size);
 }
 
 bool AsyncConfigPortal::addPostHandler(const char* path, PostHandler handler,

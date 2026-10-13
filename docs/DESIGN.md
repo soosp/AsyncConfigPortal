@@ -235,6 +235,24 @@ failure says which store could not be erased. With no handler registered the
 button still appears and clears what the server itself owns (the credentials) —
 it never silently does nothing, but it also never guesses at application state.
 
+**A restore is answered on the page, not with a page.** The Backup page posts
+each restore with `fetch()` (`pfSubmit()`) and shows the answer below that
+section's button: the page stays, the next section can be restored at once,
+and a refusal names what was wrong. The answer is
+`{"result":"ok"|"<code>","index":n,"message":"...","restart":true}`
+(`sendResult()`), the same shape a page's own saves can use. A restore that
+restarts the device covers the page (`pfRestarting()`) until the device answers
+again, then reloads it; the separate result page it replaces could not do
+that, and its "saved" text was the wrong word for a restore. Whether the
+device restarts is the application's decision, so the component is told
+(`setRestartOnSave()`).
+
+The answer is built in the buffer the JSON endpoints share, so it costs no
+stack — the ESP8266 runs these handlers on the small system stack — and no
+new static RAM: the buffer is at least `resultJsonLen(RESULT_MESSAGE_LEN)`,
+below its default. A longer message is the application's to size: it passes a
+buffer of its own, computed from its own bounds.
+
 ## Detecting a lost device
 
 A page that simply stops receiving updates looks identical to a working one: the
