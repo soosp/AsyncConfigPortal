@@ -297,7 +297,7 @@ function initCommon(){getJSON('/menu',buildMenu);getJSON('/project',setProject);
 //
 // PF_ERR: texts for the codes any page may get. pfParts(): the button and
 // answer line of a form or box (none: the page). pfLabel(): "Label: " of a
-// field's row.
+// field's row. pfEsc(): text into markup.
 R"JS(var PF_ERR={busy:'The device is busy: try again',
 abandoned:'Another upload took over: nothing was changed, try again',
 too_large:'The file is larger than this device can take: nothing was changed',
@@ -307,6 +307,7 @@ http_401:'Login required: reload the page',http_403:'Refused by the device (403)
 function pfParts(c){c=c||document;return{b:c.querySelector('input[type=submit],button[type=submit],#saveBtn'),m:c.querySelector('.pmsg')};}
 function pfMsg(t,k,c){var e=pfParts(c).m;if(!e)return;e.textContent=t||'';e.className='pmsg'+(k?' '+k:'');}
 function pfLabel(e){var r=e.closest('.row'),l=r&&r.querySelector('.label');return l?l.textContent.replace(/[:*\s]+$/,'')+': ':'';}
+function pfEsc(s){return String(s).replace(/[&<>"']/g,function(c){return{'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];});}
 )JS"
 // pfPost(url, body, opts, ctx): posts body (URLSearchParams, or FormData
 // for a file) and shows the answer in ctx (a form or a box). opts: map
@@ -330,7 +331,7 @@ netMark(true);var a,h=x.getResponseHeader('Content-Type')||'',t=x.responseText;
 if(h.indexOf('json')>=0){try{a=JSON.parse(t);}catch(e){a={result:'http_'+x.status};}}
 else if(x.status<300)a={result:'ok'};
 else{if(h.indexOf('html')>=0)t=new DOMParser().parseFromString(t,'text/html').body.textContent;a={result:'http_'+x.status,message:t.trim()};}
-if(a.result=='ok'){if(a.restart){pfRestarting((a.message||o.okText||'Saved')+'. The device is restarting...',o.restartUrl);return;}
+if(a.result=='ok'){if(a.restart){pfRestarting((a.message||o.okText||'Saved')+'. The device is restarting...',o.restartUrl,a.url);return;}
 M(a.message||o.okText||'Saved','ok');if(o.done)o.done(a);return;}
 var m=o.map&&o.map[a.result];if(typeof m=='function')m=m(a.index);
 if(m&&ID(m[0])){var e=ID(m[0]);if(typeof fvFail=='function')fvFail(e,'');e.focus();M(F+': '+pfLabel(e)+m[1],'bad');return;}
@@ -339,17 +340,22 @@ x.open('POST',u,true);x.send(y);return false;}
 function pfSubmit(f,o){o=o||{};var d=new FormData(f);
 return pfPost(o.url||f.getAttribute('action'),f.querySelector('input[type=file]')?d:new URLSearchParams(d),o,f);}
 )JS"
-// pfRestarting(text, url): covers the page while the device restarts and
-// opens url (default: this page again) once the device answers: after it was
-// seen gone, or after 20 s (a restart quicker than the 2 s poll). After 60 s
-// it says the device may be at a new address, and keeps waiting.
-R"JS(function pfRestarting(t,u){var d=ID('pfOverlay');
+// pfRestarting(text, url, alt): covers the page while the device restarts
+// and opens url (default: this page again) once the device answers: after
+// it was seen gone, or after 20 s (a restart quicker than the 2 s poll).
+// alt is where the device may answer instead (a new static address): shown
+// as a link to try, never gone to by itself, since with two interfaces the
+// page may be on the other one. After 60 s the text says the device has not
+// come back, and keeps waiting.
+R"JS(function pfRestarting(t,u,alt){var d=ID('pfOverlay');
 if(!d){d=document.createElement('div');d.id='pfOverlay';d.className='alert-container';
 d.innerHTML='<div class="alert-backdrop"></div><div class="alert-content" id="pfText"></div>';document.body.appendChild(d);}
-ID('pfText').textContent=t;d.style.display='';var t0=Date.now(),g=false;
+var L=alt?' try <a href="'+pfEsc(alt)+'">'+pfEsc(alt)+'</a>.':'';
+function T(s){ID('pfText').textContent=s;if(L)ID('pfText').innerHTML+=L;}
+T(t+(L?' If the page does not come back,':''));d.style.display='';var t0=Date.now(),g=false;
 function p(){var x=new XMLHttpRequest();x.onreadystatechange=function(){if(x.readyState!=4)return;var e=Date.now()-t0;
 if(x.status!==0&&(g||e>20000)){if(u)location.replace(u);else location.reload();return;}if(x.status===0)g=true;
-if(e>60000)ID('pfText').textContent='The device has not come back at this address. If its network settings changed, open it at the new address.';
+if(e>60000)T(L?'The device has not come back at this address, so':'The device has not come back at this address. If its network settings changed, open it at the new address.');
 setTimeout(p,2000);};x.open('GET','/chkauth',true);x.timeout=2000;x.send();}
 setTimeout(p,2000);}
 )JS";

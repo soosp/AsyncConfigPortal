@@ -675,14 +675,17 @@ public:
     /// Longest message the library's own components send. An application
     /// with longer ones passes its own buffer (see sendResult()).
     static constexpr size_t RESULT_MESSAGE_LEN = 160;
+    /// Longest URL in an answer: "http://" + an IPv4 address and a port + "/".
+    static constexpr size_t RESULT_URL_LEN = 40;
 
     /**
      * @brief The longest answer with a message of @p messageLen bytes: the
-     *        frame, a code of RESULT_CODE_LEN and the message escaped (counted
-     *        twice). Size a caller buffer as resultJsonLen(n) + 1.
+     *        frame, a code of RESULT_CODE_LEN, the message escaped (counted
+     *        twice) and a URL. Size a caller buffer as resultJsonLen(n) + 1.
      */
     static constexpr size_t resultJsonLen(size_t messageLen) {
-        return sizeof(acp_detail::RESULT_JSON_FRAME) - 1 + RESULT_CODE_LEN + 2 * messageLen;
+        return sizeof(acp_detail::RESULT_JSON_FRAME) - 1 + RESULT_CODE_LEN + 2 * messageLen
+               + RESULT_URL_LEN;
     }
 
     /**
@@ -705,10 +708,14 @@ public:
      * @param index   The item the answer refers to; -1 for none.
      * @param message Text for the user (RAM); null for none.
      * @param restart The device restarts to apply what was saved.
+     * @param url     Where to try the device after the restart if it does not
+     *                come back at this address (a new static address, as
+     *                "http://192.168.1.50/"); null for none. The page shows
+     *                it as a link; it does not go there by itself.
      */
     static void sendResult(AsyncWebServerRequest* req, int code, const char* result,
                            int16_t index = -1, const char* message = nullptr,
-                           bool restart = false);
+                           bool restart = false, const char* url = nullptr);
 
     /// sendResult() with the message in flash: a PSTR() literal.
     static void sendResult_P(AsyncWebServerRequest* req, int code, const char* result,

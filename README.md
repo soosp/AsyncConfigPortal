@@ -75,9 +75,10 @@ A form can be posted two ways.
   appears in a `<span class="pmsg">` below the button, a refused field is
   outlined where `map` names it, and what the user typed stays. A restart
   flag covers the page until the device is back, then opens it again (or
-  `restartUrl`). A file upload shows its progress. `pfPost(url, body, opts,
+  `restartUrl`); a `url` in the answer (a new static address) is offered as
+  a link to try. A file upload shows its progress. `pfPost(url, body, opts,
   ctx)` does the same for an action that has no form of its own. The
-  built-in pages (Syslog, MQTT, Backup, Other) all work this way.
+  built-in pages (Network, Syslog, MQTT, Backup, Other) all work this way.
   `sendResult()` builds the answer in the buffer the JSON endpoints share; a
   message longer than `RESULT_MESSAGE_LEN` goes with a buffer of the
   application's own, sized with `resultJsonLen()`.

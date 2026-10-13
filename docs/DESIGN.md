@@ -23,15 +23,25 @@ dependencies are therefore split into always-needed and conditional.
 |`WebFormUtils.h` (POST helpers)|core|header-only|ESPAsyncWebServer|
 |`JsonReadUtils.h` (restore parsing)|core|header-only|—|
 |`FirmwareMarker.h` (OTA identity)|core|header-only|—|
+|`detail/origin_check.h`, `detail/result_json.h`, `detail/upload_claim.h`|core, internal|header-only|—|
 |`NetConfigComponent.h` + `NetConfigPages.h`|net module|only when included|NetworkProfile (conditional)|
 |`MqttConfigComponent.h` + `MqttConfigPages.h`|MQTT module|only when included|NetworkProfile (conditional)|
+|`SyslogConfigComponent.h` + `SyslogConfigPages.h`|syslog module|only when included|NetworkProfile (conditional)|
 |`NetStatusComponent.h` + `NetStatusPages.h`|status module|only when included|NetworkManager (conditional)|
 
-The MQTT and status modules are separate from the net one rather than folded
-into it, because their dependencies differ: editing broker settings needs
-`MqttProfile` from the NetworkProfile family, while showing the live link needs
-`NetworkManager`. A project that only edits profiles should not acquire the
-manager, and one that only reports status should not acquire the profiles.
+The MQTT, syslog and status modules are separate from the net one rather than
+folded into it, because their dependencies and their users differ: editing
+broker or syslog settings needs `MqttProfile` or `SyslogProfile` from the
+NetworkProfile family, while showing the live link needs `NetworkManager`. A
+project that only edits profiles should not acquire the manager, one that only
+reports status should not acquire the profiles, and one without a broker
+should not carry an MQTT page. Each module is one component class with its
+page beside it, attached with `attach(server, menu order, label[, with a
+Backup section])`, and reports a save through an `onSaved()` callback with a
+change set; what to do about the change (restart, re-apply in place) is the
+application's, since the client or sender belongs to it. The `detail/`
+headers are pure string or state logic shared by the core and the modules,
+and host-tested; they are not part of the public contract.
 
 ## Decisions
 
@@ -58,13 +68,17 @@ the shared result pages `CONFIG_PORTAL_SAVED_HTML` and
 `CONFIG_PORTAL_SAVE_FAILED_HTML`. Each module's own markup moves next to the
 module — `CONFIG_PORTAL_NET_HTML` into `NetConfigPages.h`,
 `CONFIG_PORTAL_MQTT_HTML` into `MqttConfigPages.h`,
+`CONFIG_PORTAL_SYSLOG_HTML` into `SyslogConfigPages.h`,
 `CONFIG_PORTAL_NETSTATUS_HTML` into `NetStatusPages.h`, each included by its
 component. So a module is one self-contained unit and the base carries no
 module-specific markup.
 
-The save results are base rather than module assets because every module answers
-a POST with them, and both return to the page the request came from — so a
-module serves them as they are and never names its own path.
+The save results are base rather than module assets because any module may
+answer a plain POST with them, and both return to the page the request came
+from — so a module serves them as they are and never names its own path. The
+library's own pages no longer post that way: they post in the page and are
+answered with `sendResult()` (see the config lifecycle below), and the result
+pages stay for applications' plain-post routes.
 
 `CONFIG_PORTAL_HEADER` and `CONFIG_PORTAL_FOOTER` are fragments, not a document
 frame: the footer emits the project block and stops, without closing `</body>` or
@@ -94,18 +108,20 @@ address inside the subnet, contiguous mask, gateway on-subnet — the client mir
 agree; the mirror exists to keep the user from submitting something the device
 would only reject after a round trip.
 
-### 4. `NetConfigComponent` — optional, opt-in module inside the lib
+### 4. `NetConfigComponent` and its siblings — optional, opt-in modules inside the lib
 
-The component ships **in** the library (batteries included: the app should only
-have to implement its own business logic), but as an **opt-in** module that
-creates **no mandatory dependency** on the NetworkProfile library. An
-application that wants managed network config gets a ready, working one; an
-application that doesn't pays nothing; an application that wants its own writes
-it against the base composition API.
+The components ship **in** the library (batteries included: the app should only
+have to implement its own business logic), but as **opt-in** modules that
+create **no mandatory dependency** on the NetworkProfile or NetworkManager
+libraries. An application that wants a managed network, MQTT or syslog page,
+or a live status page, gets a ready, working one; an application that doesn't
+pays nothing; an application that wants its own writes it against the base
+composition API.
 
-## How the optional module stays dependency-free
+## How the optional modules stay dependency-free
 
-Three things together make the NetworkProfile dependency non-mandatory:
+Three things together make the NetworkProfile dependency non-mandatory (the
+same holds for NetworkManager and the status module):
 
 1. `NetConfigComponent` is **header-only** — the compiler never touches it, and
    its `#include "NetworkProfile.h"` is never reached, unless a translation unit
@@ -123,7 +139,7 @@ Opt out → don't include it → zero coupling. Custom → implement your own vi
 
 These are load-bearing — breaking either reintroduces a mandatory dependency:
 
-- **Keep `NetConfigComponent` header-only.** Arduino/PlatformIO compiles every
+- **Keep the components header-only.** Arduino/PlatformIO compiles every
   `.cpp` in a library's `src/` unconditionally. If the component ever needs a
   `.cpp`, guard the whole translation unit behind a macro
   (e.g. `#if defined(NET_CONFIG_ENABLED)`) that the app defines to opt in.
@@ -221,6 +237,9 @@ files keep validation and application in the one place that understands the data
 
 **Restore validates the whole document before writing anything.** A mangled file
 therefore changes nothing at all, rather than applying the half it could read.
+The Network page's save goes through the same staging and the same commit, so
+a refused interface leaves the other one unwritten too, and the answer names
+the profile and the field.
 That needs *reading* JSON, not just writing it, so the library carries
 `JsonReadUtils.h`: a small, allocation-free reader over a `JsonSpan` view
 (`jsonRoot`, `jsonValidate`, `jsonMember`, `jsonVal`, `jsonNum`, `jsonIp`) rather
@@ -246,6 +265,11 @@ again, then reloads it; the separate result page it replaces could not do
 that, and its "saved" text was the wrong word for a restore. Whether the
 device restarts is the application's decision, so the component is told
 (`setRestartOnSave()`).
+
+A save that sets a static address answers with it (`url`): the cover shows it
+as a link to try if the page does not come back, and does not go there by
+itself, since with two interfaces the page may be on the other one, and a
+mistyped address is better discovered on a page that is still there.
 
 The answer is built in the buffer the JSON endpoints share, so it costs no
 stack — the ESP8266 runs these handlers on the small system stack — and no

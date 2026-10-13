@@ -207,22 +207,24 @@ namespace {
 
 // Sends the answer built in buf, or a bare code if it could not be built.
 void sendResultIn(AsyncWebServerRequest* req, int code, const char* result, int16_t index,
-                  const char* message, bool inFlash, bool restart, char* buf, size_t size) {
+                  const char* message, bool inFlash, bool restart, const char* url,
+                  char* buf, size_t size) {
     const size_t n = acp_detail::buildResultJson(buf, size, result, index, message,
-                                                 inFlash, restart);
+                                                 inFlash, restart, url);
     // send() copies the body into the response, so buf is free on return
     req->send(code, "application/json", n ? buf : "{\"result\":\"error\"}");
 }
 
 void sendResultShared(AsyncWebServerRequest* req, int code, const char* result,
-                      int16_t index, const char* message, bool inFlash, bool restart) {
+                      int16_t index, const char* message, bool inFlash, bool restart,
+                      const char* url) {
     // As in the JSON endpoints: under the single-task invariant this never
     // fails; if it ever did, a visible "busy" beats a data race
     if (g_jsonBusy.test_and_set(std::memory_order_acquire)) {
         req->send(503, "application/json", "{\"result\":\"busy\"}");
         return;
     }
-    sendResultIn(req, code, result, index, message, inFlash, restart, g_jsonBuf,
+    sendResultIn(req, code, result, index, message, inFlash, restart, url, g_jsonBuf,
                  sizeof(g_jsonBuf));
     g_jsonBusy.clear(std::memory_order_release);
 }
@@ -230,20 +232,21 @@ void sendResultShared(AsyncWebServerRequest* req, int code, const char* result,
 }  // namespace
 
 void AsyncConfigPortal::sendResult(AsyncWebServerRequest* req, int code, const char* result,
-                                   int16_t index, const char* message, bool restart) {
-    sendResultShared(req, code, result, index, message, false, restart);
+                                   int16_t index, const char* message, bool restart,
+                                   const char* url) {
+    sendResultShared(req, code, result, index, message, false, restart, url);
 }
 
 void AsyncConfigPortal::sendResult_P(AsyncWebServerRequest* req, int code,
                                      const char* result, int16_t index, PGM_P message,
                                      bool restart) {
-    sendResultShared(req, code, result, index, message, true, restart);
+    sendResultShared(req, code, result, index, message, true, restart, nullptr);
 }
 
 void AsyncConfigPortal::sendResult(AsyncWebServerRequest* req, int code, const char* result,
                                    int16_t index, const char* message, bool restart,
                                    char* buf, size_t size) {
-    sendResultIn(req, code, result, index, message, false, restart, buf, size);
+    sendResultIn(req, code, result, index, message, false, restart, nullptr, buf, size);
 }
 
 bool AsyncConfigPortal::addPostHandler(const char* path, PostHandler handler,

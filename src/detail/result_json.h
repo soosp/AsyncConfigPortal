@@ -3,8 +3,8 @@
 /**
  * @file result_json.h
  * @brief The answer to a form posted with fetch(): {"result":...} with an
- *        optional index, message and restart flag. Pure string logic,
- *        host-testable.
+ *        optional index, message, restart flag and the device's new address.
+ *        Pure string logic, host-testable.
  *
  * Internal implementation detail — use AsyncConfigPortal::sendResult().
  *
@@ -26,7 +26,7 @@ namespace acp_detail {
 
 /// The longest answer, with every part empty and the index at its widest.
 static constexpr char RESULT_JSON_FRAME[] =
-    "{\"result\":\"\",\"index\":-32768,\"message\":\"\",\"restart\":true}";
+    "{\"result\":\"\",\"index\":-32768,\"message\":\"\",\"restart\":true,\"url\":\"\"}";
 
 /// One byte of a string that may live in flash (ESP8266: PROGMEM).
 inline unsigned char resultByte(const char* p, bool inFlash) {
@@ -104,15 +104,34 @@ inline bool resultCat(char* buf, size_t size, size_t& pos, const char* s) {
  * @param message Text for the user, or null / empty to leave it out.
  * @param inFlash @p message is in flash (PROGMEM) on ESP8266.
  * @param restart The device restarts to apply what was saved.
+ * @param url     Where the device will answer after the restart, if it is
+ *                not this address (its new static address); null for none.
+ *                Written whole or, with the message, not at all.
  * @return Length written; 0 if the frame and the whole code do not fit.
  */
 inline size_t buildResultJson(char* buf, size_t size, const char* result, int16_t index,
-                              const char* message, bool inFlash, bool restart) {
+                              const char* message, bool inFlash, bool restart,
+                              const char* url = nullptr) {
     if (!buf || size == 0) return 0;
     buf[0] = '\0';
     if (!result) result = "";
-    const char* tail = restart ? ",\"restart\":true}" : "}";
-    const size_t tailLen = strlen(tail);
+    // The tail, after the message: the restart flag and the URL, which is
+    // short and never cut, so the message is what gives way
+    char tail[96];
+    size_t tailLen = 0;
+    tail[0] = '\0';
+    if (restart) tailLen += (size_t)snprintf(tail, sizeof(tail), ",\"restart\":true");
+    if (url && url[0]) {
+        size_t p = tailLen;
+        if (resultCat(tail, sizeof(tail), p, ",\"url\":\"") &&
+            resultCatEsc(tail, sizeof(tail), p, url) &&
+            resultCat(tail, sizeof(tail), p, "\"")) {
+            tailLen = p;
+        } else {
+            tail[tailLen] = '\0';                 // too long for the tail: left out
+        }
+    }
+    if (tailLen + 1 < sizeof(tail)) { tail[tailLen++] = '}'; tail[tailLen] = '\0'; }
     size_t pos = 0;
     if (!resultCat(buf, size, pos, "{\"result\":\"") ||
         !resultCatEsc(buf, size, pos, result) ||

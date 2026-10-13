@@ -23,9 +23,10 @@ static void check(bool ok, const char* what, int line, const char* got = nullptr
 #define CHECK(c, what) check((c), (what), __LINE__)
 #define CHECK_IS(buf, want) check(std::string(buf) == (want), want, __LINE__, buf)
 
-// The bound AsyncConfigPortal::resultJsonLen() gives (code of 31 bytes)
+// The bound AsyncConfigPortal::resultJsonLen() gives (code of 31 bytes, a
+// URL of 40)
 static size_t bound(size_t messageLen) {
-    return sizeof(RESULT_JSON_FRAME) - 1 + 31 + 2 * messageLen;
+    return sizeof(RESULT_JSON_FRAME) - 1 + 31 + 2 * messageLen + 40;
 }
 
 // Valid JSON with the expected result code; the decoded message in @p msg
@@ -72,6 +73,10 @@ int main() {
     const size_t n = buildResultJson(b, sizeof(b), "ok", 0, "Restored", true, true);
     CHECK_IS(b, "{\"result\":\"ok\",\"index\":0,\"message\":\"Restored\",\"restart\":true}");
     CHECK(n == strlen(b), "length returned");
+    buildResultJson(b, sizeof(b), "ok", -1, nullptr, false, true, "http://192.168.1.50:8080/");
+    CHECK_IS(b, "{\"result\":\"ok\",\"restart\":true,\"url\":\"http://192.168.1.50:8080/\"}");
+    buildResultJson(b, sizeof(b), "ok", -1, "Saved", false, false, "");
+    CHECK_IS(b, "{\"result\":\"ok\",\"message\":\"Saved\"}");
     std::string m;
     buildResultJson(b, sizeof(b), "refused", -1, "Hűtő \"A\" <b>", false, false);
     CHECK(readBack(b, "refused", m) && m == "Hűtő \"A\" <b>", "round trip through the reader");
@@ -81,9 +86,12 @@ int main() {
         const std::string code(31, 'c');
         const std::string msg(200, '"');
         std::string out(bound(200) + 1, 'X');
-        buildResultJson(&out[0], out.size(), code.c_str(), 32767, msg.c_str(), false, true);
+        const std::string url(40, 'u');
+        buildResultJson(&out[0], out.size(), code.c_str(), 32767, msg.c_str(), false, true,
+                        url.c_str());
         std::string got;
         CHECK(readBack(out.c_str(), code.c_str(), got) && got == msg, "bound: message whole");
+        CHECK(out.find("\"url\":\"" + url + "\"") != std::string::npos, "bound: url whole");
     }
 
     // Too long: cut at a character, "…", still valid
@@ -106,7 +114,8 @@ int main() {
         bool ok = true, utf8 = true, cut = false;
         for (size_t size = 1; size <= 120; size++) {
             std::string out(size + 8, '#');            // guard bytes after the buffer
-            const size_t len = buildResultJson(&out[0], size, "refused", 7, msg, false, true);
+            const size_t len = buildResultJson(&out[0], size, "refused", 7, msg, false, true,
+                                               "http://10.0.0.2/");
             if (out.compare(size, 8, std::string(8, '#')) != 0) ok = false;
             if (len == 0) { if (out[0] != '\0') ok = false; continue; }
             if (len >= size || strlen(out.c_str()) != len) ok = false;

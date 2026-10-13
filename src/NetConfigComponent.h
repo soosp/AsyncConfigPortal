@@ -264,10 +264,8 @@ public:
      *      the NTP servers last; then onSaved() runs once, with every change
      *      (the NTP servers included) in its set.
      *
-     * This is the cross-profile atomicity the form path still lacks (validation
-     * there is per profile, so an earlier interface may already be applied when
-     * a later one is rejected). A restore is a rarer, higher-stakes operation
-     * than a form save, so it gets the stronger guarantee from the start.
+     * The form save (_handlePost()) works the same way, on the same staging
+     * area and the same commit (_commitStaged()), so the two cannot drift.
      *
      * Entries are matched by interface `type`, not by position: a backup taken
      * from a differently-ordered device still lands correctly. A type that this
@@ -359,6 +357,7 @@ public:
                     _err(err, errLen, "could not read the current Wi-Fi profile");
                     return false;
                 }
+                st[slot].before(st[slot].cfg);
                 changed = _patchCommonJson(c, st[slot].cfg, err, errLen, failed);
                 if (_patchWifiJson(c, (uint8_t)slot, req, st[slot].cfg,
                                 err, errLen, failed)) {
@@ -380,12 +379,13 @@ public:
             } else {
                 // checkConfig() is static, so a call through a base pointer would
                 // pick the base overload at compile time. The branch-and-cast is
-                // mandatory, exactly as in _applyProfile().
+                // mandatory, exactly as in _handlePost().
                 NetworkProfile::NetworkConfig& base = st[slot].cfg;
                 if (!p->getConfig(base)) {
                     _err(err, errLen, "could not read the current network profile");
                     return false;
                 }
+                st[slot].before(base);
                 changed = _patchCommonJson(c, base, err, errLen, failed);
                 if (failed) return false;
                 {
@@ -434,44 +434,14 @@ public:
         }
 #endif
 
-        // -------------------------------------------------------------------------
         // Phase 2 — apply. Every entry has already been validated, so the only
-        // remaining failure mode is a profile mutex timeout.
-        //
-        // Honest limitation: that residue is not atomic. Validation removes the
-        // *validation* class of partial application, which is the one a bad backup
-        // can trigger; a mutex timeout half-way through can still leave an earlier
-        // profile applied. Closing that too would need a two-phase commit inside
-        // NetworkProfile, which is a profile-library change.
-        // -------------------------------------------------------------------------
+        // remaining failure mode is a profile mutex timeout (_commitStaged()).
         NetChangeSet changed;
-        for (uint8_t i = 0; i < _count; i++) {
-            if (!st[i].used || !st[i].changed) continue;
-
-            NetworkProfile* p = _entries[i].profile;
-            const bool ok =
-                (p->getInterfaceType() == NetworkProfile::InterfaceType::WIFI)
-                    ? static_cast<WiFiProfile*>(p)->setConfig(st[i].cfg)
-                    : p->setConfig(static_cast<NetworkProfile::NetworkConfig&>(
-                        st[i].cfg));
-            if (!ok) {
-                _err(err, errLen,
-                    "applying the restored configuration failed part-way; the "
-                    "device may hold a mixture of old and new settings");
-                return false;
-            }
-            p->saveCfg(_entries[i].ns);
-            changed.mark(p->getInterfaceType());
-        }
-
 #if NTP_PROFILE_ENABLED
-        if (ntpTouched) {
-            if (!_ntp->setConfig(ncfg) || !_ntp->saveCfg(_ntpNs)) {
-                _err(err, errLen, "the NTP servers could not be saved");
-                return false;
-            }
-            changed.markNtp();
-        }
+        if (!_commitStaged(st, ntpTouched ? &ncfg : nullptr, changed, err, errLen))
+            return false;
+#else
+        if (!_commitStaged(st, nullptr, changed, err, errLen)) return false;
 #endif
 
         // Fired even with an empty change set, matching _handlePost(): consumers
@@ -792,28 +762,87 @@ private:
     }
 
     // -------------------------------------------------------------------------
-    // POST /net — read-before-write per field, per profile
+    // POST /net — staged, checked, then written
     // -------------------------------------------------------------------------
 
-    void _handlePost(AsyncWebServerRequest* req) {
-        NetChangeSet changed;
-        bool rejected = false;
+    // A profile read, patched and checked, before anything is written: the
+    // staging area of a save and of a restore. One set for the component: the
+    // handlers run one at a time.
+    struct Staged {
+        WiFiProfile::WiFiConfig cfg;
+        uint8_t                 slot    = 0;      ///< index into _entries
+        bool                    used    = false;
+        bool                    changed = false;
+        bool                    dhcpBefore = true;  ///< the address before the patch
+        IPAddress               ipBefore;
+        void before(const NetworkProfile::NetworkConfig& c) {
+            dhcpBefore = c.dhcp;
+            ipBefore   = c.ip;
+        }
+    };
 
-        // Per-interface fields. The device-level hostname is patched inside each
-        // profile's config (it is one form field applied to every profile), so
-        // it takes part in the same atomic write as everything else.
+    static Staged* _staged() {
+        static Staged s[NET_CONFIG_MAX_PROFILES];
+        return s;
+    }
+
+    /**
+     * The form, posted with pfSubmit() and answered with sendResult(). Two
+     * phases, as loadFromJson(): every profile and the NTP servers are read
+     * into a staged copy and checked, and nothing is written unless all of
+     * them passed — so an earlier interface is not left applied when a later
+     * one is refused. A refusal names the profile (index) and the field (the
+     * code), for the page to outline it.
+     */
+    void _handlePost(AsyncWebServerRequest* req) {
+        Staged* st = _staged();
+        for (uint8_t i = 0; i < NET_CONFIG_MAX_PROFILES; i++) st[i] = Staged();
+
+        // Phase 1: read, patch and check. The device-level hostname is one
+        // field applied to every profile, so it takes part in every check.
         for (uint8_t i = 0; i < _count; i++) {
+            NetworkProfile* p = _entries[i].profile;
             bool failed = false;
-            if (_applyProfile(req, i, _entries[i], failed)) {
-                changed.mark(_entries[i].profile->getInterfaceType());
+            NetworkProfile::ConfigCheck cc = NetworkProfile::ConfigCheck::Ok;
+            if (p->getInterfaceType() == NetworkProfile::InterfaceType::WIFI) {
+                WiFiProfile* w = static_cast<WiFiProfile*>(p);
+                if (!w->getConfig(st[i].cfg)) { _answerBusy(req, i); return; }
+                st[i].before(st[i].cfg);
+                st[i].changed = _patchCommon(req, i, st[i].cfg, failed);
+                if (_patchWifi(req, i, st[i].cfg, failed)) st[i].changed = true;
+                if (!failed) cc = WiFiProfile::checkConfig(st[i].cfg);
+            } else {
+                // checkConfig() is static: the branch-and-cast is mandatory
+                NetworkProfile::NetworkConfig& base = st[i].cfg;
+                if (!p->getConfig(base)) { _answerBusy(req, i); return; }
+                st[i].before(base);
+                st[i].changed = _patchCommon(req, i, base, failed);
+                if (!failed) cc = NetworkProfile::checkConfig(base);
             }
-            if (failed) rejected = true;
+            if (failed) {
+                // A field longer than its store: the page checks lengths, so
+                // this is not a browser's doing
+                _logf(AsyncConfigPortal::LogLevel::Warn,
+                      PSTR("profile %u: a field is too long"), (unsigned)i);
+                AsyncConfigPortal::sendResult_P(req, 400, "too_long", i,
+                                                PSTR("A value is too long."));
+                return;
+            }
+            if (cc != NetworkProfile::ConfigCheck::Ok) {
+                char why[CHECK_MSG_SIZE];
+                _checkMsg(cc, why, sizeof(why));
+                _logf(AsyncConfigPortal::LogLevel::Warn,
+                      PSTR("profile %u: rejected - %s"), (unsigned)i, why);
+                AsyncConfigPortal::sendResult(req, 400, _checkCode(cc), i, why);
+                return;
+            }
+            st[i].used = true;
+            st[i].slot = i;
         }
 
 #if NTP_PROFILE_ENABLED
         // The NTP servers are one device-level setting, so they are read once
-        // here rather than per interface. Staged and checked before being kept,
-        // the same way a profile is.
+        // here rather than per interface, and checked with the profiles.
         //
         // An empty field clears its slot, where an empty address field means
         // "unchanged". The difference is deliberate: the manager asks DHCP for a
@@ -823,60 +852,146 @@ private:
         //
         // val is NTP_VAL_SIZE rather than the shared FIELD_VAL_LEN because an
         // FQDN is far longer than any other field on this page.
+        NtpProfile::NtpConfig ncfg;
+        bool ntpChanged = false;
         if (_ntp) {
-            NtpProfile::NtpConfig ncfg;
-            if (_ntp->getConfig(ncfg)) {
-                bool ntpChanged = false;
-                for (uint8_t t = 0; t < NtpProfile::SERVER_COUNT; t++) {
-                    char key[8], val[NTP_VAL_SIZE];
-                    snprintf_P(key, sizeof(key), PSTR("ntp%u"), t);
-                    if (postVal(req, key, val, sizeof(val)) >= 0
-                        && strcmp(val, ncfg.server[t]) != 0) {
-                        snprintf_P(ncfg.server[t], sizeof(ncfg.server[t]),
-                                   PSTR("%s"), val);
-                        ntpChanged = true;
-                    }
+            if (!_ntp->getConfig(ncfg)) { _answerBusy(req, -1); return; }
+            for (uint8_t t = 0; t < NtpProfile::SERVER_COUNT; t++) {
+                char key[8], val[NTP_VAL_SIZE];
+                snprintf_P(key, sizeof(key), PSTR("ntp%u"), t);
+                if (postVal(req, key, val, sizeof(val)) < 0
+                    || strcmp(val, ncfg.server[t]) == 0) continue;
+                // Checked one by one, so the answer can name the field
+                if (val[0] && !Host::isValidIp(val) && !Host::isValidFqdn(val)) {
+                    _logf(AsyncConfigPortal::LogLevel::Warn,
+                          PSTR("NTP server %u was rejected"), (unsigned)t);
+                    AsyncConfigPortal::sendResult_P(req, 400, "bad_ntp", t,
+                        PSTR("Not a host name or an IP address."));
+                    return;
                 }
-                if (ntpChanged) {
-                    if (_ntp->checkConfig(ncfg) != NtpProfile::ConfigCheck::Ok) {
-                        _logf(AsyncConfigPortal::LogLevel::Warn,
-                              PSTR("an NTP server address was rejected"));
-                        rejected = true;
-                    } else if (_ntp->setConfig(ncfg) && _ntp->saveCfg(_ntpNs)) {
-                        changed.markNtp();
-                    } else {
-                        _logf(AsyncConfigPortal::LogLevel::Error,
-                              PSTR("NTP servers could not be saved"));
-                        rejected = true;
-                    }
-                }
+                snprintf_P(ncfg.server[t], sizeof(ncfg.server[t]), PSTR("%s"), val);
+                ntpChanged = true;
             }
         }
 #endif
 
-        // Persist every profile whose type is marked as changed. A profile that
-        // was rejected is never marked, so it is not persisted either.
-        for (uint8_t i = 0; i < _count; i++) {
-            if (changed.changed(_entries[i].profile->getInterfaceType())) {
-                _entries[i].profile->saveCfg(_entries[i].ns);
-            }
-        }
+        // Phase 2: write. The answer carries the new address if a static one
+        // was set, for the page to offer once the device is gone.
+        char url[AsyncConfigPortal::RESULT_URL_LEN + 1];
+        _newAddressUrl(req, st, url, sizeof(url));
 
+        NetChangeSet changed;
+        char err[CHECK_MSG_SIZE + 96];
+#if NTP_PROFILE_ENABLED
+        const bool ok = _commitStaged(st, ntpChanged ? &ncfg : nullptr, changed,
+                                      err, sizeof(err));
+#else
+        const bool ok = _commitStaged(st, nullptr, changed, err, sizeof(err));
+#endif
         // Always invoked, including with an empty change set: consumers rely on
         // being told that a submit happened but changed nothing.
         if (_onSaved) _onSaved(changed);
-
-        if (rejected) {
-            // Validation happens per profile, so with several interfaces an
-            // earlier one may already have been applied; say so rather than
-            // promising a clean rollback.
-            AsyncConfigPortal::sendProgmem(req, 400, "text/html", CONFIG_PORTAL_SAVE_FAILED_HTML);
+        if (!ok) {
+            AsyncConfigPortal::sendResult(req, 500, "storage_error", -1, err);
             return;
         }
-
         // The component only reports "saved"; the application decides whether
-        // to apply live or restart. The page shows a generic confirmation.
-        AsyncConfigPortal::sendProgmem(req, 200, "text/html", CONFIG_PORTAL_SAVED_HTML);
+        // to apply live or restart, and has said which (setRestartOnSave())
+        AsyncConfigPortal::sendResult(req, 200, "ok", -1, nullptr,
+                                      _restartOnSave && changed.any(), url);
+    }
+
+    void _answerBusy(AsyncWebServerRequest* req, int16_t idx) {
+        _logf(AsyncConfigPortal::LogLevel::Error,
+              PSTR("profile %d: getConfig failed (mutex timeout); configuration not saved"),
+              (int)idx);
+        AsyncConfigPortal::sendResult_P(req, 500, "busy", idx,
+            PSTR("The device is busy; nothing was changed. Try again."));
+    }
+
+    /**
+     * Phase 2 of a save or a restore: applies and stores every staged profile
+     * that changed, then the NTP servers (@p ncfg, or null for unchanged).
+     * Everything was checked before, so the only failure left is a profile
+     * mutex timeout or a failed write; an earlier profile may be applied
+     * then, which @p err says. Closing that too would need a two-phase commit
+     * inside NetworkProfile, which is a profile-library change.
+     */
+#if NTP_PROFILE_ENABLED
+    typedef NtpProfile::NtpConfig* NtpStaged;
+#else
+    typedef void* NtpStaged;
+#endif
+    bool _commitStaged(Staged* st, NtpStaged ncfg, NetChangeSet& changed,
+                       char* err, size_t errLen) {
+        for (uint8_t i = 0; i < _count; i++) {
+            if (!st[i].used || !st[i].changed) continue;
+
+            NetworkProfile* p = _entries[i].profile;
+            const bool ok =
+                (p->getInterfaceType() == NetworkProfile::InterfaceType::WIFI)
+                    ? static_cast<WiFiProfile*>(p)->setConfig(st[i].cfg)
+                    : p->setConfig(static_cast<NetworkProfile::NetworkConfig&>(
+                        st[i].cfg));
+            if (!ok) {
+                _err(err, errLen,
+                    "applying the configuration failed part-way; the device may "
+                    "hold a mixture of old and new settings");
+                return false;
+            }
+            p->saveCfg(_entries[i].ns);
+            changed.mark(p->getInterfaceType());
+        }
+#if NTP_PROFILE_ENABLED
+        if (ncfg) {
+            if (!_ntp->setConfig(*ncfg) || !_ntp->saveCfg(_ntpNs)) {
+                _err(err, errLen, "the NTP servers could not be saved");
+                return false;
+            }
+            changed.markNtp();
+        }
+#else
+        (void)ncfg;
+#endif
+        return true;
+    }
+
+    /**
+     * "http://<address>[:port]/" if a staged profile sets a static address
+     * it did not have before; empty otherwise. The port is the one this
+     * request came in on. With two interfaces the page may be on the other
+     * one, so the page offers the address, it does not go there by itself.
+     */
+    void _newAddressUrl(AsyncWebServerRequest* req, const Staged* st, char* out,
+                        size_t size) {
+        out[0] = '\0';
+        for (uint8_t i = 0; i < _count; i++) {
+            const NetworkProfile::NetworkConfig& c = st[i].cfg;
+            if (!st[i].used || !st[i].changed || c.dhcp) continue;
+            if (!st[i].dhcpBefore && c.ip == st[i].ipBefore) continue;
+            const String& host = req->host();
+            const int colon = host.indexOf(':');
+            snprintf_P(out, size, PSTR("http://%u.%u.%u.%u%s/"), c.ip[0], c.ip[1], c.ip[2],
+                       c.ip[3], colon >= 0 ? host.c_str() + colon : "");
+            return;
+        }
+    }
+
+    /// The result code of a profile check, for the page to tie to its field.
+    static const char* _checkCode(NetworkProfile::ConfigCheck c) {
+        using CC = NetworkProfile::ConfigCheck;
+        switch (c) {
+            case CC::Ok:               return "ok";
+            case CC::BadHostname:      return "bad_hostname";
+            case CC::BadIp:            return "bad_ip";
+            case CC::BadMask:          return "bad_mask";
+            case CC::GatewayOffSubnet: return "gateway_off_subnet";
+            case CC::BadDns:           return "bad_dns";
+            case CC::BadSsid:          return "bad_ssid";
+            case CC::BadPassword:      return "bad_password";
+            case CC::BadTxPower:       return "bad_tx_power";
+        }
+        return "refused";
     }
 
     // Storage for /netdata. Function-local statics rather than data members:
@@ -892,98 +1007,13 @@ private:
         return busy;
     }
 
-    // Applies the POSTed fields for profile #idx.
-    //
-    // Read-modify-write against a whole config struct rather than field-by-field
-    // setters. Three reasons: the profile mutex is taken once instead of once per
-    // field; setConfig() validates the complete configuration *before* touching
-    // anything, so an invalid field cannot leave a half-updated profile; and a
-    // mutex timeout surfaces as a failure rather than being reported as a
-    // successful change.
-    //
-    // Fields absent from the POST (a hidden priority, a blank password, static
-    // address fields hidden while DHCP is on) simply keep the value read back
-    // from the profile.
-    //
-    // @param failed set when the profile could not be read or the new config was
-    //        rejected; the caller reports this to the user.
-    // @return true if something actually changed and was applied.
-    bool _applyProfile(AsyncWebServerRequest* req, uint8_t idx, Entry& e,
-                       bool& failed) {
-        NetworkProfile* p = e.profile;
-
-        if (p->getInterfaceType() == NetworkProfile::InterfaceType::WIFI) {
-            WiFiProfile* w = static_cast<WiFiProfile*>(p);
-            WiFiProfile::WiFiConfig cfg;
-            if (!w->getConfig(cfg)) {
-                _logf(AsyncConfigPortal::LogLevel::Error,
-                      PSTR("profile %u: getConfig failed (mutex timeout); "
-                      "configuration not saved"), (unsigned)idx);
-                failed = true;
-                return false;
-            }
-
-            bool changed = _patchCommon(req, idx, cfg, failed);
-            if (_patchWifi(req, idx, cfg, failed)) changed = true;
-            // A rejected field rejects the whole profile: applying the rest
-            // would store a configuration the user did not submit.
-            if (failed || !changed) return false;
-
-            // Authoritative gate, with the specific reason for the log. setConfig()
-            // re-checks, but only names yes/no; checking here turns "invalid" into
-            // an actionable line instead of the busy path below.
-            NetworkProfile::ConfigCheck cc = WiFiProfile::checkConfig(cfg);
-            if (cc != NetworkProfile::ConfigCheck::Ok) {
-                char why[CHECK_MSG_SIZE];
-                _checkMsg(cc, why, sizeof(why));
-                _logf(AsyncConfigPortal::LogLevel::Warn,
-                      PSTR("profile %u: rejected - %s"), (unsigned)idx, why);
-                failed = true;
-                return false;
-            }
-
-            if (!w->setConfig(cfg)) {
-                _logf(AsyncConfigPortal::LogLevel::Error,
-                      PSTR("profile %u: could not be saved (device busy); try again"),
-                      (unsigned)idx);
-                failed = true;
-                return false;
-            }
-            return true;
-        }
-
-        NetworkProfile::NetworkConfig cfg;
-        if (!p->getConfig(cfg)) {
-            _logf(AsyncConfigPortal::LogLevel::Error,
-                    PSTR("profile %u: getConfig failed (mutex timeout); "
-                    "configuration not saved"), (unsigned)idx);
-            failed = true;
-            return false;
-        }
-
-        bool changed = _patchCommon(req, idx, cfg, failed);
-        if (failed || !changed) return false;
-
-        NetworkProfile::ConfigCheck cc = NetworkProfile::checkConfig(cfg);
-        if (cc != NetworkProfile::ConfigCheck::Ok) {
-            char why[CHECK_MSG_SIZE];
-            _checkMsg(cc, why, sizeof(why));
-            _logf(AsyncConfigPortal::LogLevel::Warn,
-                  PSTR("profile %u: rejected - %s"), (unsigned)idx, why);
-            failed = true;
-            return false;
-        }
-
-        if (!p->setConfig(cfg)) {
-            _logf(AsyncConfigPortal::LogLevel::Error,
-                    PSTR("profile %u: could not be saved (device busy); try again"),
-                    (unsigned)idx);
-            failed = true;
-            return false;
-        }
-        return true;
-    }
-
+    // The fields are patched into a whole config struct read from the profile
+    // (_patchCommon(), _patchWifi()) rather than through field-by-field
+    // setters: the profile mutex is taken once, setConfig() validates the
+    // complete configuration before touching anything, and a mutex timeout
+    // surfaces as a failure. Fields absent from the POST (a hidden priority, a
+    // blank password, static address fields hidden while DHCP is on) keep the
+    // value read back from the profile.
     // Patches the fields common to every interface type. Templated because
     // Reads an optional IP field. Present + empty clears it to 0.0.0.0; present
     // + a valid address sets it; absent or unparseable leaves it unchanged. The
@@ -1356,9 +1386,12 @@ private:
         }
 
         _claim().release(req);
-        // The page covers itself until the device is back, if it restarts
+        // The page covers itself until the device is back, if it restarts,
+        // and offers the new address if a static one was restored
+        char url[AsyncConfigPortal::RESULT_URL_LEN + 1];
+        _newAddressUrl(req, _staged(), url, sizeof(url));
         AsyncConfigPortal::sendResult(req, 200, "ok", -1, nullptr,
-                                      _restartOnSave && _lastChanged);
+                                      _restartOnSave && _lastChanged, url);
     }
 
     /**
@@ -1402,17 +1435,6 @@ private:
     // hundred bytes per profile does not belong on the AsyncTCP task stack, and
     // a static cannot fragment the heap. WiFiConfig derives from NetworkConfig,
     // so one array covers both kinds; non-Wi-Fi slots use the base subobject.
-    struct Staged {
-        WiFiProfile::WiFiConfig cfg;
-        uint8_t                 slot    = 0;      ///< index into _entries
-        bool                    used    = false;
-        bool                    changed = false;
-    };
-
-    static Staged* _staged() {
-        static Staged s[NET_CONFIG_MAX_PROFILES];
-        return s;
-    }
 
     static void _err(char* err, size_t errLen, const char* fmt, ...) {
         if (!err || errLen == 0) return;

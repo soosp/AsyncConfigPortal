@@ -183,6 +183,15 @@ function buildTime(ntp){
   ID('nettime').innerHTML=h+'<\/div>';
 }
 function setData(doc){buildNet(doc.profiles);buildTime(doc.ntp);}
+// The device's own checks, at their fields: the index is the profile's
+// (AsyncConfigPortal::sendResult()). A DNS refusal outlines the first slot,
+// since the check names no slot.
+function fld(n,m){return function(i){return [n+i,m];};}
+var MAP={bad_hostname:['host','Not a valid hostname'],bad_ip:fld('ip','Not a usable address'),
+ bad_mask:fld('mask','Not a valid subnet mask'),gateway_off_subnet:fld('gw','Not on this subnet'),
+ bad_dns:fld('dns0_','Not a usable DNS address'),bad_ssid:fld('ssid','Empty or too long'),
+ bad_password:fld('pass','8 to 63 characters, or none for an open network'),
+ bad_tx_power:fld('txpwr','Not an allowed level'),bad_ntp:fld('ntp','Not a host name or IP address')};
 // This page is a form, so stale readings are not the issue — being unable to
 // save is. Set before initCommon() creates the banner.
 netOfflineMsg='Device not responding \u2014 changes cannot be saved';
@@ -192,10 +201,10 @@ function init(){initCommon();getJSON('/netdata',setData);}
 CONFIG_PORTAL_HEADER
 R"HTML(
 <div class="content">
-  <form method="post" action="/net">
+  <form method="post" action="/net" onsubmit="return pfSubmit(this,{map:MAP})">
     <div id="netforms"></div>
     <div id="nettime"></div>
-    <div class="submit"><input type="submit" id="saveBtn" value="Save"></div>
+    <div class="submit"><input type="submit" id="saveBtn" value="Save"><span class="pmsg"></span></div>
   </form>
 </div>
 )HTML"

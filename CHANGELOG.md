@@ -9,6 +9,26 @@ and this project adheres to
 
 ## [Unreleased]
 
+### Added
+
+- `sendResult()` takes a `url`: where to try the device after a restart if
+  it does not come back at this address. The cover shows it as a link, and
+  does not go there by itself: with two interfaces the page may be on the
+  other one. `RESULT_URL_LEN`, counted in `resultJsonLen()`
+
+### Changed
+
+- The Network page posts in the page too. A refused field is outlined and
+  named below the Save button, with the profile's index (`bad_hostname`,
+  `bad_ip`, `bad_mask`, `gateway_off_subnet`, `bad_dns`, `bad_ssid`,
+  `bad_password`, `bad_tx_power`, `bad_ntp`, `too_long`). The save is
+  staged and checked whole before anything is written, on the same code as
+  the restore: a refused interface no longer leaves an earlier one applied.
+  With `setRestartOnSave()` the page covers itself until the device is back;
+  a save or a restore that sets a static address offers it as a link
+- `docs/DESIGN.md` and its boundary figure cover the syslog module and the
+  `detail/` headers, which they had left out
+
 ## [0.11.0] - 2026-10-13
 
 ### Added
