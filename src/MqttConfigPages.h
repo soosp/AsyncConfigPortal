@@ -34,6 +34,8 @@ function mqttRules(v) {
   var port = parseInt(v.value('port'), 10);
   if (!(port >= 1 && port <= 65535)) v.fail('port', 'Between 1 and 65535');
   if (ID('auth').checked && !v.value('user')) v.fail('user', 'Required');
+  var t = v.value('topic');
+  if (t && (/[+#]/.test(t) || /^\/|\/$|\/\//.test(t))) v.fail('topic', 'No wildcard, no leading, trailing or double slash');
 }
 
 function build(o) {
@@ -80,6 +82,12 @@ R"HTML(
              {type: 'password', title: 'Leave empty to keep the stored password'});
   h += '</div>';
 
+  // The device's namespace on the broker. Empty keeps the application's
+  // default, which the placeholder shows, so a device follows its hostname
+  // until a topic is written in.
+  h += ifRow('', 'Base topic', 'topic', o.baseTopic, o.defaultTopic,
+             {title: 'The topic everything is published under; empty for the default shown'});
+
   // Home Assistant discovery, only when the project asked for the row. It sits
   // inside mqttfields so it dims with the rest when MQTT is switched off: it is
   // a layer on top of the connection, not an alternative to it.
@@ -123,7 +131,8 @@ function dim() {
 // The device's own checks, at their fields (AsyncConfigPortal::sendResult())
 var MAP = {no_host: ['host', 'Required'], bad_host: ['host', 'Not a host name or IP address'],
   bad_port: ['port', 'Between 1 and 65535'],
-  password_without_user: ['user', 'Required with a password']};
+  password_without_user: ['user', 'Required with a password'],
+  bad_topic: ['topic', 'No wildcard, no leading, trailing or double slash, at most 64 characters']};
 
 function init() { initCommon(); getJSON('/mqttdata', build); }
 </script>

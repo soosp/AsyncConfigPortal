@@ -229,7 +229,7 @@ never includes it has that dependency at all.
 |Include|Page|Pulls in|
 |---|---|---|
 |`<NetConfigComponent.h>`|Network — addressing, DNS, hostname, Wi-Fi, and the NTP servers|NetworkProfile (`NtpProfile` for the Time group, which needs `NTP_PROFILE_ENABLED`)|
-|`<MqttConfigComponent.h>`|MQTT — broker, port, TLS, credentials|NetworkProfile (`MqttProfile`)|
+|`<MqttConfigComponent.h>`|MQTT — broker, port, TLS, credentials, the base topic|NetworkProfile (`MqttProfile`, 0.10.0+)|
 |`<SyslogConfigComponent.h>`|Syslog — server, port, severity floor, facility|NetworkProfile (`SyslogProfile`, 0.9.0+)|
 |`<NetStatusComponent.h>`|Net status — the live link, read-only|NetworkManager|
 
@@ -278,6 +278,7 @@ netConfig.setRestartOnSave(true);           // says so to the Backup page
 netConfig.attach(web, AsyncConfigPortal::MENU_NET, "Network", /*withBackup=*/true);
 
 mqtt.setProfile(mqttProfile, "mqtt");       // exactly one
+mqtt.setDefaultBaseTopic(defaultBase);      // "sensors/<hostname>": the placeholder
 mqtt.onSaved([](const MqttConfigComponent::Changed& c) {
     if (c.connection) restartPending = true; // the client is built from these
 });

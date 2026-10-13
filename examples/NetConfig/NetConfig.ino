@@ -260,12 +260,15 @@ static constexpr char NS_MQTT[] = "mqtt";
 // round number: the prefix is fixed, the hostname is not, and a hostname at its
 // maximum would otherwise be truncated silently.
 static constexpr char   MQTT_PREFIX[]    = "netconfig/";
-static constexpr size_t MQTT_BASE_SIZE   = sizeof(MQTT_PREFIX)
-                                         + NetworkProfile::MAX_HOSTNAME_LEN;
+static constexpr size_t MQTT_DEFAULT_SIZE = sizeof(MQTT_PREFIX)
+                                          + NetworkProfile::MAX_HOSTNAME_LEN;
+static constexpr size_t MQTT_BASE_SIZE   = MQTT_DEFAULT_SIZE > MqttProfile::MAX_TOPIC_SIZE
+                                         ? MQTT_DEFAULT_SIZE : MqttProfile::MAX_TOPIC_SIZE;
 static constexpr size_t MQTT_TOPIC_SIZE  = MQTT_BASE_SIZE + 8;   // + "/uptime"
 
 static MqttProfile::MqttConfig mqttCfg;    // what this run is using
-static char     mqttBase[MQTT_BASE_SIZE]  = {};   // netconfig/<hostname>
+static char     mqttDefaultBase[MQTT_DEFAULT_SIZE] = {};   // netconfig/<hostname>
+static char     mqttBase[MQTT_BASE_SIZE]  = {};   // the stored one, or the default
 static char     mqttWill[MQTT_TOPIC_SIZE] = {};   // <base>/status
 static bool     mqttStarted   = false;
 static uint32_t mqttLastPub   = 0;
@@ -385,9 +388,9 @@ static void initWiFiProfile() {
 // -----------------------------------------------------------------------------
 
 // -----------------------------------------------------------------------------
-// MQTT. Topics are the application's business: they follow from this project's
-// naming, and a stored topic layout would be one more thing to keep in step with
-// the code publishing to it.
+// MQTT. The base topic is the profile's (the MQTT page edits it); empty, it is
+// this project's default, netconfig/<hostname>, which the page shows as the
+// placeholder. Everything below the base is the application's business.
 // -----------------------------------------------------------------------------
 
 /// Applies the stored settings to the client. Once per boot — see the note by
@@ -425,9 +428,8 @@ static void mqttStart() {
     mqtt.setServer(mqttCfg.host, mqttCfg.port);
     mqtt.setKeepAlive(30);
 
-    char host[NetworkProfile::MAX_HOSTNAME_SIZE];
-    ethProfile.getHostname(host, sizeof(host));
-    snprintf(mqttBase, sizeof(mqttBase), "%s%s", MQTT_PREFIX, host);
+    snprintf(mqttBase, sizeof(mqttBase), "%s",
+             MqttProfile::effectiveBaseTopic(mqttCfg, mqttDefaultBase));
     snprintf(mqttWill, sizeof(mqttWill), "%s/status", mqttBase);
 
     mqttStarted = true;
@@ -608,6 +610,14 @@ void setup() {
     // MQTT settings page, with a Backup section of its own.
     mqttProfile.loadCfg(NS_MQTT);
     mqttPage.setProfile(mqttProfile, NS_MQTT);
+    // The default base topic follows the hostname; the page shows it as the
+    // placeholder of the Base topic field
+    {
+        char host[NetworkProfile::MAX_HOSTNAME_SIZE];
+        ethProfile.getHostname(host, sizeof(host));
+        snprintf(mqttDefaultBase, sizeof(mqttDefaultBase), "%s%s", MQTT_PREFIX, host);
+        mqttPage.setDefaultBaseTopic(mqttDefaultBase);
+    }
     mqttPage.onSaved([](const MqttConfigComponent::Changed& c) {
         // The connection was built from these and cannot be rebuilt underneath
         // itself — least of all the transport, a different object for TLS.

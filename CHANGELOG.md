@@ -9,6 +9,16 @@ and this project adheres to
 
 ## [Unreleased]
 
+### Added
+
+- MQTT page: a Base topic field, the device's namespace on the broker
+  (`MqttProfile::baseTopic`, NetworkProfile 0.10.0). Empty keeps the
+  application's default, which the field shows as its placeholder
+  (`setDefaultBaseTopic()`), so a device follows its hostname until a topic
+  is written in. Refused as `bad_topic` at the field; in the backup;
+  `Changed::baseTopic` on a save or a restore that changed it, for the
+  application to clear the retained messages on the old one
+
 ## [0.12.0] - 2026-10-13
 
 ### Added

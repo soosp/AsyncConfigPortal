@@ -121,9 +121,13 @@ public:
         /// not a no-op for the application: the retained discovery messages
         /// have to be cleared, or the entities linger in Home Assistant.
         bool haDiscovery = false;
+        /// The base topic changed: the retained messages on the old one have
+        /// to be cleared, and everything announced again on the new one
+        /// (MqttProfile::getLastBaseTopic()).
+        bool baseTopic = false;
 
         /// @return true if anything changed at all.
-        bool any() const { return connection || enabled || haDiscovery; }
+        bool any() const { return connection || enabled || haDiscovery || baseTopic; }
     };
 
     /** @brief Called after a successful save. */
@@ -143,6 +147,14 @@ public:
 
     /** @brief Registers a callback invoked after a successful save. */
     void onSaved(SavedFn fn) { _onSaved = fn; }
+
+    /**
+     * @brief The base topic the application uses while the stored one is
+     *        empty: "sensors/<hostname>". Shown as the field's placeholder,
+     *        so the page says what is in effect; left empty, the device keeps
+     *        following it. The string must outlive the component.
+     */
+    void setDefaultBaseTopic(const char* topic) { _defaultTopic = topic; }
 
     /**
      * @brief Tells the component that the application restarts the device
@@ -255,7 +267,8 @@ private:
     static constexpr size_t RESTORE_LEN =
           Host::MAX_FQDN_SIZE            // host
         + MqttProfile::MAX_USER_SIZE     // user
-        + 160;                           // keys, punctuation, port, flags
+        + MqttProfile::MAX_TOPIC_SIZE    // base topic
+        + 180;                           // keys, punctuation, port, flags
     /// How long a stalled upload keeps the buffer before another may take it.
     static constexpr uint32_t RESTORE_IDLE_MS = 10000;
 
@@ -268,6 +281,7 @@ private:
     /// Off by default: a project with no discovery publisher should not show a
     /// control that does nothing.
     bool               _withHaDiscovery = false;
+    const char*        _defaultTopic = "";     // setDefaultBaseTopic()
 
     /// The form's data. The password is never sent — only whether one is stored,
     /// so the field can say "(unchanged)" instead of pretending to be empty.
@@ -306,7 +320,13 @@ private:
         ok = ok && json_cat_P(buf, PSTR(",\"haDiscovery\":"), len);
         ok = ok && json_cat_P(buf, c.haDiscovery ? PSTR("true") : PSTR("false"), len);
 
-        ok = ok && json_cat_P(buf, PSTR("}"), len);
+        // The stored base topic (empty: the default applies) and the default,
+        // for the placeholder
+        ok = ok && json_cat_P(buf, PSTR(",\"baseTopic\":\""), len);
+        ok = ok && json_cat_esc(buf, c.baseTopic, len);
+        ok = ok && json_cat_P(buf, PSTR("\",\"defaultTopic\":\""), len);
+        ok = ok && json_cat_esc(buf, _defaultTopic, len);
+        ok = ok && json_cat_P(buf, PSTR("\"}"), len);
         return ok;
     }
 
@@ -358,6 +378,7 @@ private:
         if (_withHaDiscovery) c.haDiscovery = req->hasParam("hadisc", true);
 
         _str(req, "host", c.host, sizeof(c.host));
+        _str(req, "topic", c.baseTopic, sizeof(c.baseTopic));
 
         // The "requires authentication" box absent means an anonymous
         // connection: both credentials are cleared. A hidden field still
@@ -401,16 +422,18 @@ private:
         Changed ch;
         ch.enabled     = (c.enabled != before.enabled);
         ch.haDiscovery = (c.haDiscovery != before.haDiscovery);
+        ch.baseTopic   = strcmp(c.baseTopic, before.baseTopic) != 0;
         ch.connection = strcmp(c.host, before.host) != 0
                      || c.port != before.port
                      || c.tls  != before.tls
                      || strcmp(c.user, before.user) != 0
                      || strcmp(c.password, before.password) != 0;
         _srv->logf(AsyncConfigPortal::LogLevel::Info, "mqtt",
-                   PSTR("saved%s%s%s"),
+                   PSTR("saved%s%s%s%s"),
                    ch.enabled     ? ", enabled state changed" : "",
                    ch.connection  ? ", connection settings changed" : "",
-                   ch.haDiscovery ? ", HA discovery changed" : "");
+                   ch.haDiscovery ? ", HA discovery changed" : "",
+                   ch.baseTopic   ? ", base topic changed" : "");
 
         // The page waits for the restart the application does on a
         // connection change, if it said so (setRestartOnSave())
@@ -490,6 +513,7 @@ private:
         }
         jsonVal(doc, "host", c.host, sizeof(c.host));
         jsonVal(doc, "user", c.user, sizeof(c.user));
+        jsonVal(doc, "baseTopic", c.baseTopic, sizeof(c.baseTopic));
         jsonNum(doc, "port", c.port);
 
         // The password is never in the file, so the form answers for it. One
@@ -548,7 +572,7 @@ private:
         AsyncConfigPortal::sendResult(req, 200, "ok", -1, nullptr, _restartOnSave);
 
         if (_onSaved) {
-            Changed ch; ch.enabled = true; ch.connection = true;
+            Changed ch; ch.enabled = true; ch.connection = true; ch.baseTopic = true;
             _onSaved(ch);           // a restore may have changed anything
         }
     }
@@ -591,6 +615,7 @@ private:
             case MqttProfile::ConfigCheck::BadPort: return "bad_port";
             case MqttProfile::ConfigCheck::PasswordWithoutUser:
                                                     return "password_without_user";
+            case MqttProfile::ConfigCheck::BadTopic: return "bad_topic";
         }
         return "refused";
     }
@@ -603,6 +628,7 @@ private:
             case MqttProfile::ConfigCheck::BadPort: p = PSTR("invalid port"); break;
             case MqttProfile::ConfigCheck::PasswordWithoutUser:
                                                     p = PSTR("password without a username"); break;
+            case MqttProfile::ConfigCheck::BadTopic: p = PSTR("invalid base topic"); break;
         }
         if (!out || len == 0) return;
         strncpy_P(out, p, len);
