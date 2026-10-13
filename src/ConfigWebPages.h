@@ -313,7 +313,9 @@ function pfEsc(s){return String(s).replace(/[&<>"']/g,function(c){return{'&':'&a
 // for a file) and shows the answer in ctx (a form or a box). opts: map
 // {result: [field id, text], or function(index) returning one}, busy, okText,
 // failText, done(answer), restartUrl (where to go once the device is back;
-// default: this page). pfSubmit(f, opts) posts form f the same way: use as
+// default: this page), button (disabled while the post runs, in place of the
+// submit button of ctx: for an action button that is not one, e.g. inside
+// another form). pfSubmit(f, opts) posts form f the same way: use as
 // onsubmit="return pfSubmit(this)"; opts.url replaces the form's action.
 // An XMLHttpRequest rather than fetch(): it reports the upload's progress
 // (shown while a file goes up), as the rest of this script does its own.
@@ -322,7 +324,7 @@ function pfEsc(s){return String(s).replace(/[&<>"']/g,function(c){return{'&':'&a
 // outline only, its message goes below the button, which does not move: a
 // message under the field would vanish on blur and move the button from
 // under the pointer as it is clicked.
-R"JS(function pfPost(u,y,o,c){o=o||{};var b=pfParts(c).b,M=function(t,k){pfMsg(t,k,c);},F=o.failText||'Not saved',B=o.busy||'Saving...';
+R"JS(function pfPost(u,y,o,c){o=o||{};var b=o.button||pfParts(c).b,M=function(t,k){pfMsg(t,k,c);},F=o.failText||'Not saved',B=o.busy||'Saving...';
 var x=new XMLHttpRequest();if(b)b.disabled=true;M(B,'');
 if(x.upload)x.upload.onprogress=function(e){if(e.lengthComputable&&e.total>65536)M(B+' '+Math.round(100*e.loaded/e.total)+'%','');};
 x.onreadystatechange=function(){if(x.readyState!=4)return;if(b)b.disabled=false;

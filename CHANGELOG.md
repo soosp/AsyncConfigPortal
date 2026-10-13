@@ -9,6 +9,17 @@ and this project adheres to
 
 ## [Unreleased]
 
+### Added
+
+- `pfPost()` takes `opts.button`: the button disabled while the post runs,
+  in place of the submit button of `ctx`. For an action button that is not
+  a submit button (one inside another form, which Enter must not press),
+  answered on a line of its own next to it
+
+### Fixed
+
+- CHANGELOG: the compare links of 0.13.0 and 0.13.1
+
 ## [0.13.1] - 2026-10-13
 
 ### Fixed

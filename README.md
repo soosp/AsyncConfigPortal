@@ -77,7 +77,10 @@ A form can be posted two ways.
   flag covers the page until the device is back, then opens it again (or
   `restartUrl`); a `url` in the answer (a new static address) is offered as
   a link to try. A file upload shows its progress. `pfPost(url, body, opts,
-  ctx)` does the same for an action that has no form of its own. The
+  ctx)` does the same for an action that has no form of its own: `ctx` is
+  the box holding its answer line, and `opts.button` the button to disable
+  while it runs (an action button inside another form is not a submit
+  button, or Enter in that form would press it). The
   built-in pages (Network, Syslog, MQTT, Backup, Other) all work this way.
   `sendResult()` builds the answer in the buffer the JSON endpoints share; a
   message longer than `RESULT_MESSAGE_LEN` goes with a buffer of the
