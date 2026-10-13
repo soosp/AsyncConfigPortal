@@ -3,3 +3,5 @@ json_harness
 json_harness_san
 *.exe
 *.o
+origin_harness
+origin_harness_san
