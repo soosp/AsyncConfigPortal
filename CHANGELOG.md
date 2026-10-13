@@ -9,6 +9,16 @@ and this project adheres to
 
 ## [Unreleased]
 
+### Fixed
+
+- The documentation of `NetConfigComponent::wifiCredentialGate()` and
+  `loadFromJson()` still described the earlier restore form with a single
+  password field, where an empty password meant an open network. The form has
+  a "Requires password" box and a password field, as on `/net`: unticked means
+  open, a filled field is the password, and a ticked box with an empty field
+  keeps the stored password (refused for a new SSID). The behaviour is
+  unchanged
+
 ## [0.9.1] - 2026-10-13
 
 ### Fixed

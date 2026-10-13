@@ -211,11 +211,11 @@ public:
      *
      * The rule, and why it is this and not "always ask":
      *
-     * | SSID in backup vs stored | password supplied | result        |
-     * |--------------------------|-------------------|---------------|
-     * | same                     | either            | Ok            |
-     * | different                | no                | NeedPassword  |
-     * | different                | yes (empty too)   | Ok            |
+     * | SSID in backup vs stored | credential supplied | result        |
+     * |--------------------------|---------------------|---------------|
+     * | same                     | either              | Ok            |
+     * | different                | no                  | NeedPassword  |
+     * | different                | yes                 | Ok            |
      *
      * When the SSID is unchanged the stored password is still the right one, so
      * nothing needs to be typed. When it changes, the stored password belongs to
@@ -223,13 +223,22 @@ public:
      * device with no way back — NetworkManager's fallback is between
      * *interfaces*, so a single-interface device has nothing to fall back to.
      *
-     * A supplied *empty* password is a valid answer: it means the target is an
-     * open network. That is why the caller must distinguish "absent" from
-     * "empty" rather than testing for a non-empty string.
+     * "Credential supplied" is the caller's reading of the restore form, which
+     * uses the same two controls as /net, a "Requires password" checkbox
+     * (`wifireq<idx>`) and a password field (`wifipass<idx>`):
+     *
+     * | Requires password | password field | meaning                         | supplied |
+     * |-------------------|----------------|---------------------------------|----------|
+     * | unticked          | (ignored)      | the network is open             | yes      |
+     * | ticked            | filled         | this is the password            | yes      |
+     * | ticked            | empty          | keep the stored password        | no       |
+     *
+     * An empty field is therefore never "open network": for a new SSID it
+     * names no password at all, and the restore is refused.
      *
      * @param ssidChanged      The backup's SSID differs from the stored one.
-     * @param passwordSupplied A password parameter was present in the request,
-     *                         regardless of whether it was empty.
+     * @param passwordSupplied The form gives a credential for the network: the
+     *                         box is unticked (open), or ticked with a password.
      */
     static CredentialGate wifiCredentialGate(bool ssidChanged,
                                              bool passwordSupplied) {
@@ -249,8 +258,11 @@ public:
      *
      *   1. Every entry is matched to a registered profile, patched into a staged
      *      config, validated with checkConfig(), and put through the
-     *      credential gate. Nothing is written.
-     *   2. Only if every entry passed does anything get applied and persisted.
+     *      credential gate; the NTP servers are checked too. Nothing is
+     *      written.
+     *   2. Only if every entry passed does anything get applied and persisted,
+     *      the NTP servers last; then onSaved() runs once, with every change
+     *      (the NTP servers included) in its set.
      *
      * This is the cross-profile atomicity the form path still lacks (validation
      * there is per profile, so an earlier interface may already be applied when
@@ -263,8 +275,9 @@ public:
      * silently applying half a configuration is worse than refusing it.
      *
      * @param doc    Span covering the array of profile entries.
-     * @param req    The request, used to read the supplied Wi-Fi password
-     *               (`wifipass<idx>`); presence is what matters, not content.
+     * @param req    The request, used to read the Wi-Fi credential: the
+     *               "Requires password" box (`wifireq<idx>`) and the password
+     *               (`wifipass<idx>`); see wifiCredentialGate().
      * @param err    Filled with a specific, user-facing reason on failure.
      * @param errLen Size of @p err.
      * @return true if the whole document was applied.
