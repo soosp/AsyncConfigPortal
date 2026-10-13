@@ -326,7 +326,9 @@ private:
         ok = ok && json_cat_esc(buf, c.baseTopic, len);
         ok = ok && json_cat_P(buf, PSTR("\",\"defaultTopic\":\""), len);
         ok = ok && json_cat_esc(buf, _defaultTopic, len);
-        ok = ok && json_cat_P(buf, PSTR("\"}"), len);
+        ok = ok && json_fitted(snprintf_P(n, sizeof(n), PSTR("\",\"topicMax\":%u}"),
+                                          (unsigned)MqttProfile::MAX_TOPIC_LEN), sizeof(n));
+        ok = ok && json_cat(buf, n, len);
         return ok;
     }
 

@@ -9,6 +9,12 @@ and this project adheres to
 
 ## [Unreleased]
 
+### Fixed
+
+- MQTT page: the base topic's length limit is the profile's
+  (`MqttProfile::MAX_TOPIC_LEN`, sent as `topicMax`), checked in the page
+  too; the message no longer names a fixed 64
+
 ## [0.13.0] - 2026-10-13
 
 ### Added

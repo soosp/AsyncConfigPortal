@@ -36,10 +36,13 @@ function mqttRules(v) {
   if (ID('auth').checked && !v.value('user')) v.fail('user', 'Required');
   var t = v.value('topic');
   if (t && (/[+#]/.test(t) || /^\/|\/$|\/\//.test(t))) v.fail('topic', 'No wildcard, no leading, trailing or double slash');
+  else if (t && t.length > topicMax) v.fail('topic', 'At most ' + topicMax + ' characters');
 }
 
+var topicMax = 64;   // from /mqttdata: MqttProfile::MAX_TOPIC_LEN
 function build(o) {
   var h = '';
+  topicMax = o.topicMax || topicMax;
   h += '<div class="group"><div class="group-title">Broker</div>';
 
   // The switch comes first: everything below it is what it switches.
@@ -132,7 +135,7 @@ function dim() {
 var MAP = {no_host: ['host', 'Required'], bad_host: ['host', 'Not a host name or IP address'],
   bad_port: ['port', 'Between 1 and 65535'],
   password_without_user: ['user', 'Required with a password'],
-  bad_topic: ['topic', 'No wildcard, no leading, trailing or double slash, at most 64 characters']};
+  bad_topic: ['topic', 'No wildcard, no leading, trailing or double slash, not too long']};
 
 function init() { initCommon(); getJSON('/mqttdata', build); }
 </script>
