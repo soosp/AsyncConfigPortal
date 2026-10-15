@@ -419,6 +419,47 @@ public:
     };
 
     /**
+     * @brief Confirmation of an updated firmware, for the bootloader's
+     *        rollback (ESP32; the ESP8266 has none).
+     *
+     * With `CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE` the bootloader starts a
+     * newly written image once, unconfirmed; if the device resets before
+     * the image confirms itself — a crash in setup(), a watchdog — the
+     * next boot goes back to the firmware in the other slot. The Arduino
+     * core would confirm every image before setup() runs, which defeats
+     * this; the portal defers that (`verifyRollbackLater()`), and confirms
+     * instead this many seconds after boot, from a timer — the device has
+     * run that long without a reset. 60 by default; 0 confirms in begin().
+     * CONFIRM_BY_APPLICATION leaves it to the application, which then calls
+     * confirmFirmware() itself — from loop(), after some uptime, so that
+     * the main loop running is part of what is confirmed. An application
+     * that takes this on must confirm: an image never confirmed is rolled
+     * back at the next reset, however long it ran.
+     *
+     * A reset in the first seconds after an update is therefore a rollback.
+     * Until the image is confirmed, firmwarePending() is true.
+     */
+    static constexpr int32_t CONFIRM_BY_APPLICATION = -1;
+    void setFirmwareConfirmDelay(int32_t seconds) { _fwConfirmDelayS = seconds; }
+
+    /** @brief Whether the running firmware is still an unconfirmed update. */
+    static bool firmwarePending();
+
+    /**
+     * @brief Confirms the running firmware: the bootloader keeps it from
+     *        now on. Idempotent. true if the image is confirmed (now or
+     *        before); false if the state could not be written.
+     */
+    static bool confirmFirmware();
+
+    /**
+     * @brief Whether the other slot holds an image the bootloader rolled
+     *        back from — the last update failed to confirm — until the next
+     *        update overwrites that slot.
+     */
+    static bool firmwareRolledBack();
+
+    /**
      * @brief Sets the cross-site request check. Strict by default.
      *
      * Covers every route, the built-in ones, the components' and the
@@ -1035,6 +1076,10 @@ private:
     /** @brief Reboots via a short-lived task so the HTTP response flushes first. */
     void _scheduleRestart();
 
+    /** @brief Reports the firmware's state at begin() and arms the
+     *  confirmation (ESP32). */
+    void _beginFirmwareConfirm();
+
 
     /** @brief State-changing method (not GET, HEAD or OPTIONS). */
     static bool _changesState(AsyncWebServerRequest* req);
@@ -1061,6 +1106,7 @@ private:
 #endif
     HttpDigestAuth* _auth = nullptr;
     LogFn           _log;   ///< Optional diagnostic sink; silent if unset.
+    int32_t         _fwConfirmDelayS = 60;   ///< setFirmwareConfirmDelay()
 
     // Set by the OTA upload handler when an image is rejected (wrong project/
     // board marker), read by the completion handler to report the mismatch.

@@ -9,6 +9,20 @@ and this project adheres to
 
 ## [Unreleased]
 
+### Added
+
+- Firmware rollback (ESP32): an updated image confirms itself 60 s after
+  boot (`setFirmwareConfirmDelay()`), so a reset before that — a crash in
+  `setup()`, a watchdog — boots the previous firmware, through the
+  bootloader's app rollback. The library defines `verifyRollbackLater()`
+  so the core no longer confirms before `setup()`. `CONFIRM_BY_APPLICATION`
+  leaves the confirmation to the application (`confirmFirmware()` from
+  `loop()`); `firmwarePending()`, `firmwareRolledBack()`; log lines at
+  boot, at the confirmation and after a rollback. The Other page shows the
+  state of both slots and boots the other one on request (`/revert`,
+  `/firmware`). A `#warning` on an ESP32 core built without rollback.
+  README: "Firmware rollback (ESP32)"
+
 ## [0.13.2] - 2026-10-13
 
 ### Added

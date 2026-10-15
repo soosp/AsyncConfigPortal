@@ -14,6 +14,8 @@
 #if defined(ARDUINO_ARCH_ESP32)
 #  include <Update.h>
 #  include <esp_system.h>
+#  include <esp_ota_ops.h>
+#  include <esp_timer.h>
 #  define ACP_UPDATE_ERR Update.errorString()             // const char*
 #elif defined(ARDUINO_ARCH_ESP8266)
 #  include <Updater.h>       // the core's OTA updater (Update global)
@@ -65,7 +67,91 @@ void AsyncConfigPortal::begin(HttpDigestAuth& auth) {
 
     // 4. Fire up the server.
     _server.begin();
+
+    // 5. An updated firmware confirms itself after a while (or the
+    //    application does); see setFirmwareConfirmDelay().
+    _beginFirmwareConfirm();
 }
+
+// -----------------------------------------------------------------------------
+// Firmware confirmation (ESP32 app rollback)
+// -----------------------------------------------------------------------------
+//
+// The core's initArduino() confirms a pending image before setup() unless
+// verifyRollbackLater() says to wait. The core declares it weak, in C; this
+// definition takes its place in every build that links the portal.
+
+#if defined(ARDUINO_ARCH_ESP32) && defined(CONFIG_APP_ROLLBACK_ENABLE)
+extern "C" bool verifyRollbackLater() { return true; }
+
+bool AsyncConfigPortal::firmwarePending() {
+    const esp_partition_t* running = esp_ota_get_running_partition();
+    esp_ota_img_states_t state;
+    return running != nullptr &&
+           esp_ota_get_state_partition(running, &state) == ESP_OK &&
+           state == ESP_OTA_IMG_PENDING_VERIFY;
+}
+
+bool AsyncConfigPortal::confirmFirmware() {
+    if (!firmwarePending()) return true;
+    return esp_ota_mark_app_valid_cancel_rollback() == ESP_OK;
+}
+
+bool AsyncConfigPortal::firmwareRolledBack() {
+    return esp_ota_get_last_invalid_partition() != nullptr;
+}
+
+void AsyncConfigPortal::_beginFirmwareConfirm() {
+    if (firmwareRolledBack()) {
+        logf(LogLevel::Warning, "fw",
+             PSTR("the last update did not confirm and was rolled back; the other slot holds it"));
+    }
+    if (!firmwarePending()) return;
+    if (_fwConfirmDelayS == CONFIRM_BY_APPLICATION) {
+        logf(LogLevel::Info, "fw",
+             PSTR("updated firmware, unconfirmed: the application confirms it"));
+        return;
+    }
+    if (_fwConfirmDelayS <= 0) {
+        logf(LogLevel::Info, "fw", confirmFirmware()
+             ? PSTR("updated firmware, confirmed") : PSTR("updated firmware: confirming failed"));
+        return;
+    }
+    logf(LogLevel::Info, "fw",
+         PSTR("updated firmware, unconfirmed: confirmed in %ld s unless the device resets; "
+              "a reset before that boots the previous firmware"),
+         (long)_fwConfirmDelayS);
+    // One-shot, on the esp_timer task; nothing to free, it fires once.
+    const esp_timer_create_args_t args = {
+        .callback = [](void* arg) {
+            AsyncConfigPortal* self = static_cast<AsyncConfigPortal*>(arg);
+            self->logf(LogLevel::Info, "fw", confirmFirmware()
+                       ? PSTR("firmware confirmed") : PSTR("firmware: confirming failed"));
+        },
+        .arg = this,
+        .dispatch_method = ESP_TIMER_TASK,
+        .name = "fwConfirm",
+        .skip_unhandled_events = true,
+    };
+    esp_timer_handle_t t = nullptr;
+    if (esp_timer_create(&args, &t) == ESP_OK) {
+        esp_timer_start_once(t, (uint64_t)_fwConfirmDelayS * 1000000ULL);
+    } else {
+        logf(LogLevel::Error, "fw", PSTR("confirmation timer not created; confirming now"));
+        confirmFirmware();
+    }
+}
+#else
+#  if defined(ARDUINO_ARCH_ESP32)
+// Said at build time, once: the bootloader is the core's, prebuilt, so the
+// application cannot turn this on.
+#    warning "AsyncConfigPortal: this core's sdkconfig has no CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE; an update that crashes is not rolled back"
+#  endif
+bool AsyncConfigPortal::firmwarePending()    { return false; }
+bool AsyncConfigPortal::confirmFirmware()    { return true; }
+bool AsyncConfigPortal::firmwareRolledBack() { return false; }
+void AsyncConfigPortal::_beginFirmwareConfirm() {}
+#endif
 
 // -----------------------------------------------------------------------------
 // Composition API
@@ -722,6 +808,51 @@ void AsyncConfigPortal::_registerOtherPage() {
         _auth->setCredentials(c);
         _auth->save();
         sendResult(req, 200, "ok");   // the page signs out and in again
+    });
+
+    // Firmware state, for the page: whether the running image is still an
+    // unconfirmed update, and whether the other slot holds a bootable image.
+    _server.on("/firmware", HTTP_GET, [this](AsyncWebServerRequest* req) {
+        if (!requireAuth(req)) return;
+        char json[96];
+#if defined(ARDUINO_ARCH_ESP32)
+        const esp_partition_t* other = esp_ota_get_next_update_partition(nullptr);
+        esp_ota_img_states_t st;
+        const bool haveOther = other != nullptr &&
+            esp_ota_get_state_partition(other, &st) == ESP_OK &&
+            st != ESP_OTA_IMG_UNDEFINED;   // never written, or erased
+        snprintf(json, sizeof(json),
+                 "{\"supported\":%d,\"pending\":%d,\"other\":%d,\"rolled_back\":%d}",
+#  if defined(CONFIG_APP_ROLLBACK_ENABLE)
+                 1,
+#  else
+                 0,
+#  endif
+                 firmwarePending() ? 1 : 0, haveOther ? 1 : 0, firmwareRolledBack() ? 1 : 0);
+#else
+        snprintf(json, sizeof(json),
+                 "{\"supported\":0,\"pending\":0,\"other\":0,\"rolled_back\":0}");
+#endif
+        req->send(200, "application/json", json);
+    });
+
+    // Boot the other slot: the firmware before the last update. It starts
+    // as an unconfirmed update itself, so a bad one is rolled back again.
+    _server.on("/revert", HTTP_POST, [this](AsyncWebServerRequest* req) {
+        if (!requireAuth(req)) return;
+#if defined(ARDUINO_ARCH_ESP32)
+        const esp_partition_t* other = esp_ota_get_next_update_partition(nullptr);
+        if (other == nullptr || esp_ota_set_boot_partition(other) != ESP_OK) {
+            sendResult_P(req, 400, "no_firmware", -1,
+                PSTR("The other slot holds no bootable firmware. Nothing was changed."));
+            return;
+        }
+        logf(LogLevel::Warning, "fw", PSTR("booting the other slot (%s) on request"), other->label);
+        sendResult(req, 200, "ok", -1, nullptr, true);   // the page waits for it
+        _scheduleRestart();
+#else
+        sendResult_P(req, 400, "no_firmware", -1, PSTR("Not available on this platform."));
+#endif
     });
 
     // Restart.

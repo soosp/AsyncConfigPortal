@@ -712,7 +712,12 @@ var ok=ID('user').value!=''&&ID('pw').value.length>=5&&ID('pw').value==ID('pwchk
 s.disabled=!ok;}
 function pwSaved(){var x=new XMLHttpRequest();x.open('GET','/authdata',true,'x','x');x.send();
 setTimeout(function(){location.href='/';},600);}
-function init(){initCommon();getJSON('/authdata',setData);}
+function setFw(o){var r=ID('fwRun'),t=ID('fwOther'),s=ID('revertSubmit'),c=ID('vc');
+if(!o.supported){ID('revertForm').style.display='none';return;}
+r.textContent=o.pending?'an update, not confirmed yet':'confirmed';
+t.textContent=o.other?(o.rolled_back?'the update that was rolled back':'the firmware before the last update'):'empty';
+if(!o.other){c.disabled=true;s.disabled=true;}}
+function init(){initCommon();getJSON('/authdata',setData);getJSON('/firmware',setFw);}
 </script>
 )HTML"
 CONFIG_PORTAL_HEADER
@@ -737,6 +742,19 @@ R"HTML(
         <input type="file" id="updateFile" name="updateFile" required></span></div>
     </div>
     <div class="submit"><input type="submit" value="Update"><span class="pmsg"></span></div>
+  </form>
+  <form method="post" action="/revert" id="revertForm" onsubmit="return pfSubmit(this,{busy:'Restarting...',okText:'Booting the other slot',failText:'Not changed',restartUrl:'/'})">
+    <div class="group">
+      <div class="group-title">Previous firmware</div>
+      <div class="row"><span class="label">Running:</span><span class="value" id="fwRun"></span></div>
+      <div class="row"><span class="label">Other slot:</span><span class="value" id="fwOther"></span></div>
+      <div class="row"><span class="label">Note:</span><span class="value">
+        Boots the firmware in the other slot. It starts as an unconfirmed
+        update itself: a reset in its first minute boots this one again.</span></div>
+      <div class="row"><span class="label">Confirm:</span><span class="value">
+        <input type="checkbox" id="vc" onchange="ID('revertSubmit').disabled=!this.checked" required></span></div>
+    </div>
+    <div class="submit"><input type="submit" id="revertSubmit" value="Boot previous" disabled><span class="pmsg"></span></div>
   </form>
   <form method="post" action="/factoryreset" id="resetForm">
     <div class="group">

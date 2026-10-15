@@ -418,3 +418,63 @@ build_flags =
 
 Reference the embedded marker once in your app (e.g. log `g_fwMarker`) so the
 linker keeps it.
+
+## Firmware rollback (ESP32)
+
+The ESP32 bootloader can undo an update that does not run. With
+`CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE` (set in the Arduino core's
+sdkconfig) a newly written image is started once, marked *pending*; if the
+device resets before that image confirms itself — a crash in `setup()`, a
+watchdog, a brownout — the next boot goes back to the firmware in the
+other OTA slot. Nothing is counted and nothing is timed by the bootloader:
+one unconfirmed run, then back.
+
+The Arduino core would confirm every pending image before `setup()` runs,
+which makes the mechanism useless; the portal defers that
+(`verifyRollbackLater()`, defined in the library) and confirms instead
+**60 seconds after boot**, from a timer: the device has run that long
+without a reset, which is what an update can be judged by at this level.
+Whether the network came up or the sensors answer is the device's
+environment, not the firmware's doing, and no reason to go back. The delay
+is `setFirmwareConfirmDelay(seconds)`; 0 confirms in `begin()`.
+
+An application can confirm by itself instead
+(`setFirmwareConfirmDelay(AsyncConfigPortal::CONFIRM_BY_APPLICATION)`),
+which lets it tie the confirmation to its main loop running:
+
+```cpp
+void loop() {
+    if (portal.firmwarePending() && millis() > 60000) portal.confirmFirmware();
+    ...
+}
+```
+
+An application that takes this on must confirm: an image that is never
+confirmed is rolled back at the next reset, however long it ran — a
+`setup()` that waits for something that never comes would do that at the
+next power cycle. The 60 s is a minimum uptime, not a deadline: a long
+`setup()` is uptime too.
+
+So, after an update, **do not reset the device in its first minute**: a
+reset before the confirmation boots the previous firmware. The log says
+which: `updated firmware, unconfirmed: confirmed in 60 s unless the device
+resets`, then `firmware confirmed`; after a rollback the next boot logs
+`the last update did not confirm and was rolled back`.
+`firmwarePending()` and `firmwareRolledBack()` report the same for a status
+line.
+
+The Other page shows the state (*Running: an update, not confirmed yet* /
+*confirmed*; *Other slot: the firmware before the last update* / *the
+update that was rolled back* / *empty*) and has a *Boot previous* button:
+it boots the other slot's image, which then starts as an unconfirmed update
+itself — a bad one is rolled back again within the minute. The running
+image is not marked invalid, so the two can be switched as often as needed
+until the next update overwrites the other slot.
+
+The ESP8266 has no rollback; there the state reads as confirmed, the form
+is hidden and `confirmFirmware()` is a no-op. The same holds on an ESP32
+core whose sdkconfig lacks `CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE` (the
+bootloader is the core's, prebuilt, so an application cannot turn it on);
+the build then says so with a `#warning`. The official Arduino core 3.x
+has it on.
+
