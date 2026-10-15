@@ -9,6 +9,8 @@ and this project adheres to
 
 ## [Unreleased]
 
+## [0.16.0] - 2026-10-15
+
 ### Added
 
 - `firmwareJustRolledBack()`: true on the first boot after a rollback,
@@ -527,7 +529,8 @@ none of them has neither dependency.
   an unconfigured one settles on a fixed address when no DHCP answers, and a
   deployed one moves to it on a button press).
 
-[Unreleased]: https://github.com/soosp/AsyncConfigPortal/compare/0.15.1...HEAD
+[Unreleased]: https://github.com/soosp/AsyncConfigPortal/compare/0.16.0...HEAD
+[0.16.0]: https://github.com/soosp/AsyncConfigPortal/compare/0.15.1...0.16.0
 [0.15.1]: https://github.com/soosp/AsyncConfigPortal/compare/0.15.0...0.15.1
 [0.15.0]: https://github.com/soosp/AsyncConfigPortal/compare/0.14.0...0.15.0
 [0.14.0]: https://github.com/soosp/AsyncConfigPortal/compare/0.13.2...0.14.0
