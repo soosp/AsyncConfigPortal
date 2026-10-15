@@ -458,13 +458,30 @@ next power cycle. The delay is a minimum uptime, not a deadline: a long
 `setup()` is uptime too. `confirmFirmware()` confirms at once, for an
 application with a condition of its own.
 
-So, after an update, **do not reset the device in its first minute**: a
-reset before the confirmation boots the previous firmware. The log says
-which: `updated firmware, unconfirmed: confirmed in 60 s unless the device
-resets`, then `firmware confirmed`; after a rollback the next boot logs
-`the last update did not confirm and was rolled back`.
-`firmwarePending()` and `firmwareRolledBack()` report the same for a status
-line.
+A deliberate action confirms at once: an authenticated request that
+changes state — a save, a restore, Restart, Factory reset, any POST of the
+application's — confirms a pending image before its handler runs (Boot
+previous excepted). The firmware has started and serves its user, which is
+what the delay waits for; a restart the user asked for is not a crash, and
+a save may write a record the previous firmware cannot read. An
+application that restarts by itself (a command over MQTT, a button) calls
+`confirmFirmware()` first, for the same reason.
+
+So, after an update, **a reset in the first minute that nobody asked for**
+— a power cut, a crash, a watchdog — boots the previous firmware. The log
+says which: `updated firmware, unconfirmed: confirmed in 60 s unless the
+device resets`, then `firmware confirmed` (or `firmware confirmed by a
+request (/restart)`); after a rollback the next boot logs `the last update
+did not confirm and was rolled back`, once. `firmwarePending()` and
+`firmwareRolledBack()` report the state for a status line;
+`firmwareJustRolledBack()` is true on that first boot after a rollback
+only, once per rolled-back image, for the application to tell someone (an
+SMS, an MQTT message) without remembering anything itself:
+
+```cpp
+portal.begin(auth);
+if (portal.firmwareJustRolledBack()) notify("firmware update rolled back");
+```
 
 The Other page shows the state (*Running: an update, not confirmed yet* /
 *confirmed*; *Other slot: the firmware before the last update* / *the
@@ -480,4 +497,3 @@ core whose sdkconfig lacks `CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE` (the
 bootloader is the core's, prebuilt, so an application cannot turn it on);
 the build then says so with a `#warning`. The official Arduino core 3.x
 has it on.
-

@@ -16,6 +16,7 @@
 #  include <esp_system.h>
 #  include <esp_ota_ops.h>
 #  include <esp_timer.h>
+#  include <Preferences.h>
 #  define ACP_UPDATE_ERR Update.errorString()             // const char*
 #elif defined(ARDUINO_ARCH_ESP8266)
 #  include <Updater.h>       // the core's OTA updater (Update global)
@@ -50,6 +51,7 @@ void AsyncConfigPortal::begin(HttpDigestAuth& auth) {
                       "(Origin/Referer check).");
             return;
         }
+        if (!_fwConfirmDone && _changesState(req)) _confirmOnRequest(req);
         next();
     });
 
@@ -101,11 +103,51 @@ bool AsyncConfigPortal::firmwareRolledBack() {
     return esp_ota_get_last_invalid_partition() != nullptr;
 }
 
-void AsyncConfigPortal::_beginFirmwareConfirm() {
-    if (firmwareRolledBack()) {
+// Once per rolled-back image: its ELF SHA-256 (8 bytes of it) is kept in NVS
+// while the other slot holds it, and forgotten once an update overwrote it,
+// so the same image rolled back again is news again.
+void AsyncConfigPortal::_noteRollback() {
+    static const char NS[] = "acp", KEY[] = "fwrb";
+    const esp_partition_t* bad = esp_ota_get_last_invalid_partition();
+    Preferences p;
+    if (!p.begin(NS, false)) return;
+    if (bad == nullptr) {
+        if (p.isKey(KEY)) p.remove(KEY);
+        p.end();
+        return;
+    }
+    uint8_t sha[8] = {0}, seen[8] = {0};
+    esp_app_desc_t desc;
+    if (esp_ota_get_partition_description(bad, &desc) == ESP_OK)
+        memcpy(sha, desc.app_elf_sha256, sizeof(sha));
+    const bool known = p.getBytes(KEY, seen, sizeof(seen)) == sizeof(seen) &&
+                       memcmp(sha, seen, sizeof(sha)) == 0;
+    if (!known) {
+        p.putBytes(KEY, sha, sizeof(sha));
+        _fwJustRolledBack = true;
         logf(LogLevel::Warn, "fw",
              PSTR("the last update did not confirm and was rolled back; the other slot holds it"));
     }
+    p.end();
+}
+
+// A deliberate request (authenticated, changing state; not Boot previous)
+// confirms a pending image before its handler runs: see FirmwareConfirm.
+void AsyncConfigPortal::_confirmOnRequest(AsyncWebServerRequest* req) {
+    if (!_auth || strcmp(req->url().c_str(), "/revert") == 0) return;
+    HttpDigestAuth::Credentials c;
+    _auth->getCredentials(c);
+    if (!req->authenticate(c.user, c.md5, c.realm, true)) return;
+    _fwConfirmDone = true;
+    if (!firmwarePending()) return;
+    const bool ok = confirmFirmware();
+    logf(ok ? LogLevel::Info : LogLevel::Error, "fw", ok
+         ? PSTR("firmware confirmed by a request (%s)")
+         : PSTR("firmware: confirming failed (%s)"), req->url().c_str());
+}
+
+void AsyncConfigPortal::_beginFirmwareConfirm() {
+    _noteRollback();
     if (!firmwarePending()) { _fwConfirmDone = true; return; }
     if (_fwConfirmBy == FirmwareConfirm::Application) {
         logf(LogLevel::Info, "fw",
@@ -126,6 +168,8 @@ void AsyncConfigPortal::_beginFirmwareConfirm() {
     const esp_timer_create_args_t args = {
         .callback = [](void* arg) {
             AsyncConfigPortal* self = static_cast<AsyncConfigPortal*>(arg);
+            self->_fwConfirmDone = true;
+            if (!firmwarePending()) return;          // a request confirmed it
             self->logf(LogLevel::Info, "fw", confirmFirmware()
                        ? PSTR("firmware confirmed") : PSTR("firmware: confirming failed"));
         },
@@ -164,7 +208,9 @@ bool AsyncConfigPortal::firmwarePending()    { return false; }
 bool AsyncConfigPortal::confirmFirmware()    { return true; }
 bool AsyncConfigPortal::firmwareRolledBack() { return false; }
 bool AsyncConfigPortal::confirmFirmwareWhenDue() { return false; }
-void AsyncConfigPortal::_beginFirmwareConfirm() {}
+void AsyncConfigPortal::_beginFirmwareConfirm() { _fwConfirmDone = true; }
+void AsyncConfigPortal::_noteRollback() {}
+void AsyncConfigPortal::_confirmOnRequest(AsyncWebServerRequest*) {}
 #endif
 
 // -----------------------------------------------------------------------------

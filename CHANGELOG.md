@@ -9,6 +9,22 @@ and this project adheres to
 
 ## [Unreleased]
 
+### Added
+
+- `firmwareJustRolledBack()`: true on the first boot after a rollback,
+  once per rolled-back image (its ELF SHA-256 noted in NVS, namespace
+  `acp`), for the application to tell someone; the log line says it once
+  too, no longer at every boot while the other slot holds the image
+
+### Fixed
+
+- Firmware rollback: a deliberate restart in the first minute after an
+  update — Restart, Factory reset, a restore or save that restarts —
+  rolled the update back. An authenticated request that changes state
+  (not Boot previous) now confirms a pending image before its handler
+  runs; an application confirms with `confirmFirmware()` before a
+  restart of its own
+
 ## [0.15.1] - 2026-10-15
 
 ### Fixed

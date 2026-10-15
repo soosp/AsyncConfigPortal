@@ -437,8 +437,15 @@ public:
      * make that call: an image never confirmed is rolled back at the next
      * reset, however long it ran.
      *
-     * A reset in the first seconds after an update is therefore a rollback.
-     * Until the image is confirmed, firmwarePending() is true.
+     * A reset in the first seconds after an update is therefore a rollback,
+     * unless something deliberate came first: an authenticated request that
+     * changes state (a save, a restore, Restart, Factory reset; not Boot
+     * previous) confirms the image before its handler runs. The firmware has
+     * started and is serving its user, which is what the delay waits for;
+     * and a save may write a record the previous firmware cannot read. An
+     * application confirms likewise, with confirmFirmware(), before a
+     * restart of its own (a command, a button). Until the image is
+     * confirmed, firmwarePending() is true.
      */
     enum class FirmwareConfirm : uint8_t {
         Timer = 0,     ///< the portal, from a timer, the delay after boot
@@ -472,6 +479,15 @@ public:
      *        update overwrites that slot.
      */
     static bool firmwareRolledBack();
+
+    /**
+     * @brief Whether this is the first boot after a rollback: true from
+     *        begin() on, in this boot only, once per rolled-back image (its
+     *        ELF SHA-256 is noted in NVS, namespace "acp"). For the
+     *        application to tell someone — the portal only logs it. An
+     *        image rolled back again after a new update counts anew.
+     */
+    bool firmwareJustRolledBack() const { return _fwJustRolledBack; }
 
     /**
      * @brief Sets the cross-site request check. Strict by default.
@@ -1093,6 +1109,8 @@ private:
     /** @brief Reports the firmware's state at begin() and arms the
      *  confirmation (ESP32). */
     void _beginFirmwareConfirm();
+    void _noteRollback();
+    void _confirmOnRequest(AsyncWebServerRequest* req);
 
 
     /** @brief State-changing method (not GET, HEAD or OPTIONS). */
@@ -1122,7 +1140,8 @@ private:
     LogFn           _log;   ///< Optional diagnostic sink; silent if unset.
     uint32_t        _fwConfirmDelayS = 60;   ///< setFirmwareConfirmDelay()
     FirmwareConfirm _fwConfirmBy = FirmwareConfirm::Timer;
-    bool            _fwConfirmDone = false;  ///< confirmFirmwareWhenDue() ran
+    bool            _fwConfirmDone = false;  ///< confirmed, or nothing to confirm
+    bool            _fwJustRolledBack = false;   ///< firmwareJustRolledBack()
 
     // Set by the OTA upload handler when an image is rejected (wrong project/
     // board marker), read by the completion handler to report the mismatch.
