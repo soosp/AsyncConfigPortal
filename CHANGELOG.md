@@ -9,6 +9,10 @@ and this project adheres to
 
 ## [Unreleased]
 
+### Fixed
+
+- README: two lines of the firmware rollback section over 80 columns
+
 ## [0.16.1] - 2026-10-15
 
 ### Fixed

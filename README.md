@@ -464,11 +464,12 @@ upload, any POST of the application's — confirms a pending image before
 its handler runs (Boot previous excepted); an upload does so at its first
 chunk, before any of its data is used. (Without that, an update uploaded
 in the first minute after another would fail: the bootloader's OTA API
-refuses to write while the running image is unconfirmed.) The firmware has started and serves its user, which is
-what the delay waits for; a restart the user asked for is not a crash, and
-a save may write a record the previous firmware cannot read. An
-application that restarts by itself (a command over MQTT, a button) calls
-`confirmFirmware()` first, for the same reason.
+refuses to write while the running image is unconfirmed.) The firmware
+has started and serves its user, which is what the delay waits for; a
+restart the user asked for is not a crash, and a save may write a record
+the previous firmware cannot read. An application that restarts by itself
+(a command over MQTT, a button) calls `confirmFirmware()` first, for the
+same reason.
 
 So, after an update, **a reset in the first minute that nobody asked for**
 — a power cut, a crash, a watchdog — boots the previous firmware. The log
@@ -478,8 +479,9 @@ request (/restart)`); after a rollback the next boot logs `the last update
 did not confirm and was rolled back`, once. `firmwarePending()` and
 `firmwareRolledBack()` report the state for a status line;
 `firmwareJustRolledBack()` is true on that first boot after a rollback
-only, once per rolled-back image (an image uploaded again counts anew), for the application to tell someone (an
-SMS, an MQTT message) without remembering anything itself:
+only, once per rolled-back image (an image uploaded again counts anew),
+for the application to tell someone (an SMS, an MQTT message) without
+remembering anything itself:
 
 ```cpp
 portal.begin(auth);
