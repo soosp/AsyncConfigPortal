@@ -9,6 +9,20 @@ and this project adheres to
 
 ## [Unreleased]
 
+### Fixed
+
+- Firmware rollback:
+  - An update uploaded in the first minute after another one failed as
+    `bad_file`: `esp_ota_begin()` refuses while the running image is
+    pending, and the upload reaches its handler before the middleware
+    that confirms it. The first chunk of an authenticated upload — the
+    firmware update and `addUploadHandler()` routes — now confirms the
+    running image itself
+  - The same image rolled back twice went unreported the second time
+    when it failed before `begin()` again: the noted SHA is forgotten
+    once an update is written, so its rollback is news
+  - The confirmation flag, written by three tasks, is atomic
+
 ## [0.16.0] - 2026-10-15
 
 ### Added

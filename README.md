@@ -459,9 +459,12 @@ next power cycle. The delay is a minimum uptime, not a deadline: a long
 application with a condition of its own.
 
 A deliberate action confirms at once: an authenticated request that
-changes state — a save, a restore, Restart, Factory reset, any POST of the
-application's — confirms a pending image before its handler runs (Boot
-previous excepted). The firmware has started and serves its user, which is
+changes state — a save, a restore, Restart, Factory reset, a firmware
+upload, any POST of the application's — confirms a pending image before
+its handler runs (Boot previous excepted); an upload does so at its first
+chunk, before any of its data is used. (Without that, an update uploaded
+in the first minute after another would fail: the bootloader's OTA API
+refuses to write while the running image is unconfirmed.) The firmware has started and serves its user, which is
 what the delay waits for; a restart the user asked for is not a crash, and
 a save may write a record the previous firmware cannot read. An
 application that restarts by itself (a command over MQTT, a button) calls
@@ -475,7 +478,7 @@ request (/restart)`); after a rollback the next boot logs `the last update
 did not confirm and was rolled back`, once. `firmwarePending()` and
 `firmwareRolledBack()` report the state for a status line;
 `firmwareJustRolledBack()` is true on that first boot after a rollback
-only, once per rolled-back image, for the application to tell someone (an
+only, once per rolled-back image (an image uploaded again counts anew), for the application to tell someone (an
 SMS, an MQTT message) without remembering anything itself:
 
 ```cpp

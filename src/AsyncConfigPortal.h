@@ -1,6 +1,7 @@
 #pragma once
 
 #include <Arduino.h>
+#include <atomic>
 #include <functional>
 #include <memory>
 #include <stdarg.h>
@@ -1110,6 +1111,7 @@ private:
      *  confirmation (ESP32). */
     void _beginFirmwareConfirm();
     void _noteRollback();
+    void _forgetRollback();
     void _confirmOnRequest(AsyncWebServerRequest* req);
 
 
@@ -1140,7 +1142,9 @@ private:
     LogFn           _log;   ///< Optional diagnostic sink; silent if unset.
     uint32_t        _fwConfirmDelayS = 60;   ///< setFirmwareConfirmDelay()
     FirmwareConfirm _fwConfirmBy = FirmwareConfirm::Timer;
-    bool            _fwConfirmDone = false;  ///< confirmed, or nothing to confirm
+    /// Confirmed, or nothing to confirm. Written by the async_tcp task (a
+    /// request), the esp_timer task (the timer) and loop() (WhenDue).
+    std::atomic<bool> _fwConfirmDone{false};
     bool            _fwJustRolledBack = false;   ///< firmwareJustRolledBack()
 
     // Set by the OTA upload handler when an image is rejected (wrong project/

@@ -51,7 +51,7 @@ void AsyncConfigPortal::begin(HttpDigestAuth& auth) {
                       "(Origin/Referer check).");
             return;
         }
-        if (!_fwConfirmDone && _changesState(req)) _confirmOnRequest(req);
+        if (_changesState(req)) _confirmOnRequest(req);
         next();
     });
 
@@ -106,13 +106,16 @@ bool AsyncConfigPortal::firmwareRolledBack() {
 // Once per rolled-back image: its ELF SHA-256 (8 bytes of it) is kept in NVS
 // while the other slot holds it, and forgotten once an update overwrote it,
 // so the same image rolled back again is news again.
+namespace {
+constexpr char FW_NS[] = "acp", FW_RB_KEY[] = "fwrb";
+}
+
 void AsyncConfigPortal::_noteRollback() {
-    static const char NS[] = "acp", KEY[] = "fwrb";
     const esp_partition_t* bad = esp_ota_get_last_invalid_partition();
     Preferences p;
-    if (!p.begin(NS, false)) return;
+    if (!p.begin(FW_NS, false)) return;
     if (bad == nullptr) {
-        if (p.isKey(KEY)) p.remove(KEY);
+        if (p.isKey(FW_RB_KEY)) p.remove(FW_RB_KEY);
         p.end();
         return;
     }
@@ -120,10 +123,10 @@ void AsyncConfigPortal::_noteRollback() {
     esp_app_desc_t desc;
     if (esp_ota_get_partition_description(bad, &desc) == ESP_OK)
         memcpy(sha, desc.app_elf_sha256, sizeof(sha));
-    const bool known = p.getBytes(KEY, seen, sizeof(seen)) == sizeof(seen) &&
+    const bool known = p.getBytes(FW_RB_KEY, seen, sizeof(seen)) == sizeof(seen) &&
                        memcmp(sha, seen, sizeof(sha)) == 0;
     if (!known) {
-        p.putBytes(KEY, sha, sizeof(sha));
+        p.putBytes(FW_RB_KEY, sha, sizeof(sha));
         _fwJustRolledBack = true;
         logf(LogLevel::Warn, "fw",
              PSTR("the last update did not confirm and was rolled back; the other slot holds it"));
@@ -131,9 +134,22 @@ void AsyncConfigPortal::_noteRollback() {
     p.end();
 }
 
+// A new image is in the other slot: whatever was rolled back from there is
+// gone, and a rollback of this one is news, whatever its SHA — the same
+// image uploaded again and failing again included.
+void AsyncConfigPortal::_forgetRollback() {
+    Preferences p;
+    if (!p.begin(FW_NS, false)) return;
+    if (p.isKey(FW_RB_KEY)) p.remove(FW_RB_KEY);
+    p.end();
+}
+
 // A deliberate request (authenticated, changing state; not Boot previous)
 // confirms a pending image before its handler runs: see FirmwareConfirm.
+// From the middleware, and from an upload's first chunk, which reaches its
+// handler before the middleware runs.
 void AsyncConfigPortal::_confirmOnRequest(AsyncWebServerRequest* req) {
+    if (_fwConfirmDone) return;
     if (!_auth || strcmp(req->url().c_str(), "/revert") == 0) return;
     HttpDigestAuth::Credentials c;
     _auth->getCredentials(c);
@@ -211,6 +227,7 @@ bool AsyncConfigPortal::confirmFirmwareWhenDue() { return false; }
 void AsyncConfigPortal::_beginFirmwareConfirm() { _fwConfirmDone = true; }
 void AsyncConfigPortal::_noteRollback() {}
 void AsyncConfigPortal::_confirmOnRequest(AsyncWebServerRequest*) {}
+void AsyncConfigPortal::_forgetRollback() {}
 #endif
 
 // -----------------------------------------------------------------------------
@@ -532,6 +549,7 @@ bool AsyncConfigPortal::addUploadHandler(const char* path,
             // (the middleware logs the refusal once, at the end)
             if (!originAllowed(req, false)) return;
             if (auth == AuthLevel::Required && !requireAuth(req)) return;
+            if (index == 0) _confirmOnRequest(req);   // before the data is used
             if (onChunk) onChunk(req, index, data, len, final);
         });
     return true;
@@ -1009,6 +1027,11 @@ void AsyncConfigPortal::_registerOtherPage() {
                 _otaMarkerFound = false;
                 _otaMarkerMatch = false;
                 _otaTailLen     = 0;
+                // esp_ota_begin() refuses while the running image is pending
+                // (ESP_ERR_OTA_ROLLBACK_INVALID_STATE); this request is
+                // deliberate, so it confirms it, as the middleware would
+                // only after the upload.
+                _confirmOnRequest(req);
 #if defined(ARDUINO_ARCH_ESP8266)
                 Update.runAsync(true);   // required for the async server on ESP8266
 #endif
@@ -1073,6 +1096,7 @@ void AsyncConfigPortal::_registerOtherPage() {
                 }
                 if (Update.end(true)) {
                     logf(LogLevel::Info,  "ota", PSTR("success, %u bytes"), (unsigned)(index + len));
+                    _forgetRollback();
                 } else {
                     logf(LogLevel::Error, "ota", PSTR("end failed: %s"), ACP_UPDATE_ERR);
                 }
