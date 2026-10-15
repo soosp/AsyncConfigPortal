@@ -9,6 +9,11 @@ and this project adheres to
 
 ## [Unreleased]
 
+### Fixed
+
+- Did not build on ESP32: the firmware lines used `LogLevel::Warning`,
+  which does not exist (`Warn`)
+
 ## [0.15.0] - 2026-10-15
 
 ### Changed

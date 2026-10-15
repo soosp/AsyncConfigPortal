@@ -103,7 +103,7 @@ bool AsyncConfigPortal::firmwareRolledBack() {
 
 void AsyncConfigPortal::_beginFirmwareConfirm() {
     if (firmwareRolledBack()) {
-        logf(LogLevel::Warning, "fw",
+        logf(LogLevel::Warn, "fw",
              PSTR("the last update did not confirm and was rolled back; the other slot holds it"));
     }
     if (!firmwarePending()) { _fwConfirmDone = true; return; }
@@ -861,7 +861,7 @@ void AsyncConfigPortal::_registerOtherPage() {
                 PSTR("The other slot holds no bootable firmware. Nothing was changed."));
             return;
         }
-        logf(LogLevel::Warning, "fw", PSTR("booting the other slot (%s) on request"), other->label);
+        logf(LogLevel::Warn, "fw", PSTR("booting the other slot (%s) on request"), other->label);
         sendResult(req, 200, "ok", -1, nullptr, true);   // the page waits for it
         _scheduleRestart();
 #else
