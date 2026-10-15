@@ -9,6 +9,16 @@ and this project adheres to
 
 ## [Unreleased]
 
+### Changed
+
+- Firmware confirmation: who confirms and when are two settings.
+  `setFirmwareConfirmBy(FirmwareConfirm::Timer | Application)` replaces
+  the `CONFIRM_BY_APPLICATION` value of `setFirmwareConfirmDelay()`, which
+  now takes the delay only (`firmwareConfirmDelay()` reads it back); an
+  application confirms with `confirmFirmwareWhenDue()` from `loop()`,
+  which checks the uptime against the same delay, reads the state once
+  and logs. `CONFIRM_BY_APPLICATION` is gone
+
 ## [0.14.0] - 2026-10-15
 
 ### Added

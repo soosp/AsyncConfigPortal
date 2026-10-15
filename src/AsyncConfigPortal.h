@@ -428,19 +428,33 @@ public:
      * next boot goes back to the firmware in the other slot. The Arduino
      * core would confirm every image before setup() runs, which defeats
      * this; the portal defers that (`verifyRollbackLater()`), and confirms
-     * instead this many seconds after boot, from a timer — the device has
-     * run that long without a reset. 60 by default; 0 confirms in begin().
-     * CONFIRM_BY_APPLICATION leaves it to the application, which then calls
-     * confirmFirmware() itself — from loop(), after some uptime, so that
-     * the main loop running is part of what is confirmed. An application
-     * that takes this on must confirm: an image never confirmed is rolled
-     * back at the next reset, however long it ran.
+     * instead some seconds after boot (setFirmwareConfirmDelay(); 60 by
+     * default, 0 confirms in begin()) — the device has run that long
+     * without a reset. Who confirms is setFirmwareConfirmBy(): the portal,
+     * from a timer (the default); or the application, which then calls
+     * confirmFirmwareWhenDue() from loop(), so that the main loop running
+     * is part of what is confirmed. An application that takes this on must
+     * make that call: an image never confirmed is rolled back at the next
+     * reset, however long it ran.
      *
      * A reset in the first seconds after an update is therefore a rollback.
      * Until the image is confirmed, firmwarePending() is true.
      */
-    static constexpr int32_t CONFIRM_BY_APPLICATION = -1;
-    void setFirmwareConfirmDelay(int32_t seconds) { _fwConfirmDelayS = seconds; }
+    enum class FirmwareConfirm : uint8_t {
+        Timer = 0,     ///< the portal, from a timer, the delay after boot
+        Application    ///< the application, with confirmFirmwareWhenDue()
+    };
+    void setFirmwareConfirmBy(FirmwareConfirm by) { _fwConfirmBy = by; }
+    void setFirmwareConfirmDelay(uint32_t seconds) { _fwConfirmDelayS = seconds; }
+    uint32_t firmwareConfirmDelay() const { return _fwConfirmDelayS; }
+
+    /**
+     * @brief For FirmwareConfirm::Application, from loop(): confirms the
+     *        firmware once the uptime has reached the delay. Does the work
+     *        once; the calls after that cost a comparison. true on the call
+     *        that confirmed.
+     */
+    bool confirmFirmwareWhenDue();
 
     /** @brief Whether the running firmware is still an unconfirmed update. */
     static bool firmwarePending();
@@ -1106,7 +1120,9 @@ private:
 #endif
     HttpDigestAuth* _auth = nullptr;
     LogFn           _log;   ///< Optional diagnostic sink; silent if unset.
-    int32_t         _fwConfirmDelayS = 60;   ///< setFirmwareConfirmDelay()
+    uint32_t        _fwConfirmDelayS = 60;   ///< setFirmwareConfirmDelay()
+    FirmwareConfirm _fwConfirmBy = FirmwareConfirm::Timer;
+    bool            _fwConfirmDone = false;  ///< confirmFirmwareWhenDue() ran
 
     // Set by the OTA upload handler when an image is rejected (wrong project/
     // board marker), read by the completion handler to report the mismatch.

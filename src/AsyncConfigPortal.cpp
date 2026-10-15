@@ -106,13 +106,14 @@ void AsyncConfigPortal::_beginFirmwareConfirm() {
         logf(LogLevel::Warning, "fw",
              PSTR("the last update did not confirm and was rolled back; the other slot holds it"));
     }
-    if (!firmwarePending()) return;
-    if (_fwConfirmDelayS == CONFIRM_BY_APPLICATION) {
+    if (!firmwarePending()) { _fwConfirmDone = true; return; }
+    if (_fwConfirmBy == FirmwareConfirm::Application) {
         logf(LogLevel::Info, "fw",
-             PSTR("updated firmware, unconfirmed: the application confirms it"));
+             PSTR("updated firmware, unconfirmed: the application confirms it after %lu s"),
+             (unsigned long)_fwConfirmDelayS);
         return;
     }
-    if (_fwConfirmDelayS <= 0) {
+    if (_fwConfirmDelayS == 0) {
         logf(LogLevel::Info, "fw", confirmFirmware()
              ? PSTR("updated firmware, confirmed") : PSTR("updated firmware: confirming failed"));
         return;
@@ -120,7 +121,7 @@ void AsyncConfigPortal::_beginFirmwareConfirm() {
     logf(LogLevel::Info, "fw",
          PSTR("updated firmware, unconfirmed: confirmed in %ld s unless the device resets; "
               "a reset before that boots the previous firmware"),
-         (long)_fwConfirmDelayS);
+         (unsigned long)_fwConfirmDelayS);
     // One-shot, on the esp_timer task; nothing to free, it fires once.
     const esp_timer_create_args_t args = {
         .callback = [](void* arg) {
@@ -141,6 +142,18 @@ void AsyncConfigPortal::_beginFirmwareConfirm() {
         confirmFirmware();
     }
 }
+
+bool AsyncConfigPortal::confirmFirmwareWhenDue() {
+    if (_fwConfirmDone || millis() < _fwConfirmDelayS * 1000UL) return false;
+    _fwConfirmDone = true;   // the state is read from flash: once
+    if (!firmwarePending()) return false;
+    const bool ok = confirmFirmware();
+    logf(ok ? LogLevel::Info : LogLevel::Error, "fw", ok
+         ? PSTR("firmware confirmed after %lu s")
+         : PSTR("firmware: confirming failed after %lu s; a reset boots the previous one"),
+         (unsigned long)(millis() / 1000));
+    return ok;
+}
 #else
 #  if defined(ARDUINO_ARCH_ESP32)
 // Said at build time, once: the bootloader is the core's, prebuilt, so the
@@ -150,6 +163,7 @@ void AsyncConfigPortal::_beginFirmwareConfirm() {
 bool AsyncConfigPortal::firmwarePending()    { return false; }
 bool AsyncConfigPortal::confirmFirmware()    { return true; }
 bool AsyncConfigPortal::firmwareRolledBack() { return false; }
+bool AsyncConfigPortal::confirmFirmwareWhenDue() { return false; }
 void AsyncConfigPortal::_beginFirmwareConfirm() {}
 #endif
 

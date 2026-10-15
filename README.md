@@ -439,21 +439,24 @@ environment, not the firmware's doing, and no reason to go back. The delay
 is `setFirmwareConfirmDelay(seconds)`; 0 confirms in `begin()`.
 
 An application can confirm by itself instead
-(`setFirmwareConfirmDelay(AsyncConfigPortal::CONFIRM_BY_APPLICATION)`),
-which lets it tie the confirmation to its main loop running:
+(`setFirmwareConfirmBy(AsyncConfigPortal::FirmwareConfirm::Application)`),
+which ties the confirmation to its main loop running: the same delay,
+checked from `loop()`:
 
 ```cpp
 void loop() {
-    if (portal.firmwarePending() && millis() > 60000) portal.confirmFirmware();
+    portal.confirmFirmwareWhenDue();   // once the uptime reaches the delay
     ...
 }
 ```
 
-An application that takes this on must confirm: an image that is never
-confirmed is rolled back at the next reset, however long it ran — a
-`setup()` that waits for something that never comes would do that at the
-next power cycle. The 60 s is a minimum uptime, not a deadline: a long
-`setup()` is uptime too.
+`confirmFirmwareWhenDue()` does its work once and costs a comparison after
+that. An application that takes this on must make the call: an image that
+is never confirmed is rolled back at the next reset, however long it ran —
+a `setup()` that waits for something that never comes would do that at the
+next power cycle. The delay is a minimum uptime, not a deadline: a long
+`setup()` is uptime too. `confirmFirmware()` confirms at once, for an
+application with a condition of its own.
 
 So, after an update, **do not reset the device in its first minute**: a
 reset before the confirmation boots the previous firmware. The log says
