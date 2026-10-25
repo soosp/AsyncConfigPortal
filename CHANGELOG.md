@@ -9,6 +9,13 @@ and this project adheres to
 
 ## [Unreleased]
 
+### Added
+
+- The chip revision on the Status page (`ESP32-P4 v3.2 (2 cores)`), as
+  `chip_rev` (major × 100 + minor) in `/statusdata` and as `chipRev` with
+  `hasChipRev` in `SystemStats`, on the ESP32. The model alone does not
+  tell an ESP32-P4 v1.x from a v3.x, whose images are not interchangeable
+
 ### Fixed
 
 - README: two lines of the firmware rollback section over 80 columns

@@ -147,9 +147,9 @@ itself.
 
 The Status page's system figures — uptime, reset reason, free heap, its
 minimum since boot, the largest allocatable block, the fragmentation figure,
-die temperature, chip, cores, clock and flash size — are read by one public,
-static call, so a periodic health line or a boot report in your own code shows
-the same numbers as the page, from the same calls:
+die temperature, chip and its revision, cores, clock and flash size — are read
+by one public, static call, so a periodic health line or a boot report in your
+own code shows the same numbers as the page, from the same calls:
 
 ```cpp
 AsyncConfigPortal::SystemStats s;
@@ -159,9 +159,9 @@ ESP_LOGD("main", "up=%lu s heap=%lu min=%lu block=%lu reset=%s",
          (unsigned long)s.heapMin, (unsigned long)s.heapMaxAlloc, s.resetReason);
 ```
 
-What a platform cannot provide is flagged (`hasHeapMin`, `hasTemp`), not
-zeroed — on ESP8266 both are false. No portal instance is needed, and the call
-touches no network state.
+What a platform cannot provide is flagged (`hasHeapMin`, `hasTemp`,
+`hasChipRev`), not zeroed — on ESP8266 all three are false. No portal
+instance is needed, and the call touches no network state.
 
 ## Platform differences
 

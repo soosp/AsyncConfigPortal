@@ -1160,6 +1160,10 @@ void AsyncConfigPortal::systemStats(SystemStats& out) {
     out.hasHeapMin   = true;
     out.heapMaxAlloc = ESP.getMaxAllocHeap();
     out.chip         = ESP.getChipModel();
+    // The model alone does not tell an ESP32-P4 v1.x from a v3.x, whose
+    // images are not interchangeable, nor an ESP32 v1 from a v3.
+    out.chipRev      = ESP.getChipRevision();
+    out.hasChipRev   = true;
     out.cores        = ESP.getChipCores();
     out.temp         = temperatureRead();
     out.hasTemp      = true;
@@ -1188,7 +1192,11 @@ bool AsyncConfigPortal::statusJson(char* buf, size_t len) const {
         "\"heap_min\":%lu,"
 #endif
         "\"heap_max_alloc\":%lu,\"heap_frag_pct\":%lu,"
-        "\"chip\":\"%s\",\"cores\":%u,\"cpu_mhz\":%lu,"
+        "\"chip\":\"%s\","
+#if defined(ARDUINO_ARCH_ESP32)
+        "\"chip_rev\":%u,"
+#endif
+        "\"cores\":%u,\"cpu_mhz\":%lu,"
 #if defined(ARDUINO_ARCH_ESP32)
         "\"temp\":%.0f,"
 #endif
@@ -1201,6 +1209,9 @@ bool AsyncConfigPortal::statusJson(char* buf, size_t len) const {
         (unsigned long)s.heapMaxAlloc,
         (unsigned long)s.heapFragPct,
         s.chip,
+#if defined(ARDUINO_ARCH_ESP32)
+        (unsigned)s.chipRev,
+#endif
         (unsigned)s.cores,
         (unsigned long)s.cpuMhz,
 #if defined(ARDUINO_ARCH_ESP32)

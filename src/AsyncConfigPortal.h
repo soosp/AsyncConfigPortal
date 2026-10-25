@@ -964,12 +964,15 @@ public:
         uint32_t    heapMaxAlloc = 0;  ///< Largest allocatable block, bytes
         uint32_t    heapFragPct  = 0;  ///< 100 × (1 − maxAlloc / free); compare at like load
         const char* chip         = ""; ///< Chip model
+        uint16_t    chipRev      = 0;  ///< Chip revision, major × 100 + minor:
+                                       ///< 302 = v3.2 (if hasChipRev)
         unsigned    cores        = 1;
         uint32_t    cpuMhz       = 0;
         float       temp         = 0;  ///< Die temperature, °C (if hasTemp)
         uint32_t    flashSize    = 0;  ///< Bytes
         bool        hasHeapMin   = false;  ///< ESP32: yes; ESP8266: no tracking
         bool        hasTemp      = false;  ///< ESP32: yes; ESP8266: no sensor
+        bool        hasChipRev   = false;  ///< ESP32: yes; ESP8266: not reported
     };
 
     /** @brief Fills @p out with the current figures. Static: no portal

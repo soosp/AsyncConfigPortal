@@ -663,7 +663,9 @@ function setData(o){
   setRow('heap_min',o.heap_min===undefined?null:(o.heap_min/1024).toFixed(1)+' KB');
   ID('heap_max').innerHTML=(o.heap_max_alloc/1024).toFixed(1)+' KB';
   ID('heap_frag').innerHTML=o.heap_frag_pct+'%';
-  ID('chip').innerHTML=o.chip+' ('+o.cores+' core'+(o.cores>1?'s)':')');
+  ID('chip').innerHTML=o.chip+
+    (o.chip_rev===undefined?'':' v'+Math.floor(o.chip_rev/100)+'.'+(o.chip_rev%100))+
+    ' ('+o.cores+' core'+(o.cores>1?'s)':')');
   ID('cpu_mhz').innerHTML=o.cpu_mhz+' MHz';
   setRow('temp',o.temp===undefined?null:o.temp+' °C');
   ID('flash').innerHTML=(o.flash_size/1048576).toFixed(0)+' MB';
