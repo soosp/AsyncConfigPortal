@@ -8,6 +8,11 @@
 
 #include <ESPAsyncWebServer.h>
 #include <HttpDigestAuth.h>
+#include "detail/hosted_config.h"   // CONFIG_PORTAL_HOSTED_OTA
+#if CONFIG_PORTAL_HOSTED_OTA
+#  include <mutex>
+#  include <esp_timer.h>
+#endif
 #include "FirmwareMarker.h"   // FIRMWARE_VERSION, the cache validator
 #include "detail/result_json.h" // the answer to a fetch() post
 #if defined(ARDUINO_ARCH_ESP8266)
@@ -297,6 +302,8 @@ public:
         Revert,       ///< "Boot previous": the older firmware in the other slot boots
         Request,      ///< the Restart button; the same firmware boots again
         FactoryReset, ///< after the reset handlers ran: what they erased must not be saved again
+        Coprocessor,  ///< the ESP-Hosted co-processor was updated; ESP-Hosted resets the host
+                      ///< within ~100 ms of activating it, so this runs just before that
     };
 
     /**
@@ -1163,6 +1170,117 @@ private:
      *  ESP.restart(). */
     void _restartNow();
 
+#if CONFIG_PORTAL_HOSTED_OTA
+    // ---- ESP-Hosted co-processor (AsyncConfigPortalHosted.cpp) --------------
+
+    /// Where an update stands. One at a time; each step starts only from the
+    /// state before it, so the contexts that share the work (the upload
+    /// handler, the writer task) never run the same step at once. Fetching:
+    /// the writer task downloads the image instead of an upload bringing it.
+    enum class HState : uint8_t { Idle, Receiving, Fetching, Writing, Activating, Failed };
+
+    /// The "hosted" object _hostedJson() appends to /firmware, over the closing
+    /// brace of the object before it. %s: started, slave, target, update,
+    /// state, err, target again; %lu: the host version, done, total, the host
+    /// version again.
+    static constexpr char HOSTED_JSON_FMT[] =
+        ",\"hosted\":{\"started\":%s,\"host\":\"%lu.%lu.%lu\",\"slave\":\"%s\","
+        "\"target\":\"%s\",\"update\":%s,\"state\":\"%s\",\"err\":\"%s\","
+        "\"done\":%lu,\"total\":%lu,"
+        "\"url\":\"https://espressif.github.io/arduino-esp32/hosted/%s-v%lu.%lu.%lu.bin\"}}";
+    /// A version, at its longest: three uint32 in decimal and two dots. The
+    /// fields are uint32_t in the core's struct, whatever ESP-Hosted's own
+    /// numbering keeps them to, so no narrower width is assumed.
+    static constexpr size_t HOSTED_VER_LEN = 3 * 10 + 2;
+    /// The co-processor's chip name: hostedGetSlaveTargetName() writes into a
+    /// char[20] of its own.
+    static constexpr size_t HOSTED_TARGET_LEN = 19;
+    /// Longest state name ("activating") and error code ("version_mismatch").
+    static constexpr size_t HOSTED_STATE_LEN = 10;
+    static constexpr size_t HOSTED_ERR_LEN   = 16;
+    /// Longest output, NUL included: the fixed text, two booleans ("false"),
+    /// the host version twice and the slave's, the target twice, the state,
+    /// the error, and done and total (uint32 each).
+    static constexpr size_t HOSTED_JSON_LEN = acp_detail::fmtFixedLen(HOSTED_JSON_FMT)
+        + 2 * 5 + 3 * HOSTED_VER_LEN + 2 * HOSTED_TARGET_LEN
+        + HOSTED_STATE_LEN + HOSTED_ERR_LEN + 2 * 10 + 1;
+    /// Writes go out in blocks of this size — the core's own updater's
+    /// (ESP_HostedOTA). Larger blocks are faster with current co-processor
+    /// firmware (4 KB: 5.1 s for an image, 2 KB: 8.4 s, measured on a P4 +
+    /// C6). But an old firmware — the one an update is most needed for — left
+    /// a 4 KB write unanswered, while the core's updater, writing 2 KB at a
+    /// time, updated an old firmware without trouble.
+    static constexpr size_t HOSTED_BLOCK = 2048;
+    /// The image header and app descriptor sit in the first 256 bytes.
+    static constexpr size_t HOSTED_HEAD = 256;
+    /// Largest upload taken: the request, multipart framing included. An
+    /// ESP-Hosted image is ~1.2 MB; the co-processor's partition is smaller
+    /// than this anyway, and would refuse a larger image at End.
+    static constexpr size_t HOSTED_MAX_UPLOAD = 4u * 1024u * 1024u;
+    /// An upload that stops arriving is dropped after this long, and its
+    /// buffer freed — checked every HOSTED_WATCH_MS by a timer, so the memory
+    /// comes back without anybody opening the page again.
+    static constexpr uint32_t HOSTED_IDLE_MS  = 30000;
+    static constexpr uint32_t HOSTED_WATCH_MS = 5000;
+    /// Between "activating" and the activation: long enough for the page's
+    /// next poll to see it and cover itself, since ESP-Hosted resets the host
+    /// ~100 ms after the activation (measured) and nothing answers after that.
+    static constexpr uint32_t HOSTED_ACTIVATE_DELAY_MS = 1000;
+    /// Should an ESP-Hosted version not reset the host itself, the portal does,
+    /// this much after the activation.
+    static constexpr uint32_t HOSTED_RESTART_FALLBACK_MS = 5000;
+    /// The writer task's stack. An upload needs RPCs and ESP-Hosted's start-up
+    /// only; a download adds the TLS handshake, which runs on it. Both also run
+    /// the onBeforeRestart() callback, so neither is below the restart task's.
+    static constexpr uint32_t HOSTED_WRITE_STACK = 4096;
+    static constexpr uint32_t HOSTED_FETCH_STACK = 8192;
+#if CONFIG_PORTAL_HOSTED_FETCH
+    /// The download: the connection and each read wait this long (HTTPClient),
+    /// and a download that brings nothing for HOSTED_IDLE_MS is given up.
+    static constexpr uint32_t HOSTED_FETCH_TIMEOUT_MS = 15000;
+#endif
+
+    std::atomic<uint8_t>   _hState{(uint8_t)HState::Idle};
+    const char*            _hErr   = "";       ///< machine code of the last failure
+    char                   _hMsg[RESULT_MESSAGE_LEN + 1] = {};   ///< its text, for the answer
+    AsyncWebServerRequest* _hOwner = nullptr;  ///< the upload being received
+    bool                   _hBusy  = false;    ///< this upload was refused as busy
+    uint8_t*               _hImg   = nullptr;  ///< the image, in PSRAM, while it is handled
+    size_t                 _hCap   = 0;        ///< size of _hImg
+    size_t                 _hLen   = 0;        ///< bytes received into it
+    bool                   _hChecked = false;  ///< the head has been checked
+    uint32_t               _hSeen  = 0;        ///< millis() of the last chunk
+    std::atomic<uint32_t>  _hDone{0};          ///< bytes written to the co-processor
+    uint32_t               _hTotal = 0;        ///< bytes to write
+    /// Guards the buffer and the receiving state between the upload handler
+    /// (AsyncTCP task) and the expiry timer (esp_timer task). The writer task
+    /// needs no part of it: nothing else touches the buffer once it writes.
+    std::mutex             _hLock;
+    bool                   _hFetch = false;    ///< the writer task downloads the image first
+    esp_timer_handle_t     _hTimer = nullptr;  ///< the expiry check while receiving
+
+    void _registerHostedRoutes();
+    bool _hostedJson(char* out, size_t len);
+    const char* _hostedTarget(bool mayAsk);
+    void _hostedFail(const char* code, const char* msg);
+    void _hostedRelease();
+    void _hostedExpire();          ///< takes _hLock
+    void _hostedExpireLocked();    ///< with _hLock held
+    void _hostedWatch();           ///< arms the expiry timer
+    static void _hostedWatchFired(void* self);
+    bool _hostedCheckHead(const uint8_t* p, size_t n, const char* target);
+    void _hostedChunk(AsyncWebServerRequest* req, size_t index, uint8_t* data,
+                      size_t len, bool final);
+    void _hostedComplete(AsyncWebServerRequest* req);
+    bool _hostedBusyLocked();      ///< another update runs; with _hLock held
+    bool _hostedStartWriter(bool fetch);
+    static void _hostedWriterTask(void* self);
+#if CONFIG_PORTAL_HOSTED_FETCH
+    void _hostedFetchRequest(AsyncWebServerRequest* req);
+    bool _hostedFetch();           ///< in the writer task
+#endif
+#endif
+
     /** @brief Reports the firmware's state at begin() and arms the
      *  confirmation (ESP32). */
     void _beginFirmwareConfirm();
@@ -1211,6 +1329,9 @@ private:
     // Set by the OTA upload handler when an image is rejected (wrong project/
     // board marker), read by the completion handler to report the mismatch.
     bool _otaReject = false;
+#if CONFIG_PORTAL_HOSTED_OTA
+    bool _otaBusy = false;   ///< this upload was refused: a co-processor update runs
+#endif
 
     // OTA marker stream-scan state: the marker may sit anywhere in the image,
     // so we scan every chunk (with a small tail carried across chunk boundaries)

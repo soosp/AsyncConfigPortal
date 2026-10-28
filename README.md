@@ -503,12 +503,134 @@ bootloader is the core's, prebuilt, so an application cannot turn it on);
 the build then says so with a `#warning`. The official Arduino core 3.x
 has it on.
 
+## Co-processor update (ESP32-P4 with ESP-Hosted)
+
+An ESP32-P4 has no radio of its own: its Wi-Fi is a second chip, an ESP32-C6
+on most boards, running Espressif's ESP-Hosted firmware and reached over SDIO.
+That firmware has to match the host side of ESP-Hosted that the Arduino core
+built into your firmware, and the Other page shows whether it does and can
+update it.
+
+### When the section is there
+
+On by default where the build has ESP-Hosted (`CONFIG_ESP_HOSTED_ENABLED`) and
+the board variant declares a co-processor (`BOARD_HAS_SDIO_ESP_HOSTED`: in core
+3.3.12 `esp32p4`, `esp32p4_core_board`, `dfrobot_firebeetle2_esp32p4`,
+`m5stack_tab5`). The core enables ESP-Hosted in every P4 build, Ethernet-only
+boards included, so the variant is what tells them apart: on
+`waveshare_p4_poe_eth` the section is off.
+
+|Macro|Default|Effect|
+|---|---|---|
+|`CONFIG_PORTAL_HOSTED_OTA`|as above|`=1` for a board of your own (pins set with `WiFi.setPins()`) whose variant does not declare the co-processor; `=0` leaves the section out. `=1` without ESP-Hosted warns and has no effect|
+|`CONFIG_PORTAL_HOSTED_FETCH`|`0`|`=1` adds *Download and update*: the device fetches the image itself (below). Warns and has no effect without the section|
+
+The portal never starts ESP-Hosted on its own — doing so toggles the
+co-processor's reset pin, which on a board without one is somebody else's pin.
+Until the application has started Wi-Fi the section reads *not running*; an
+update started from the page brings it up itself, so a device served over
+Ethernet with Wi-Fi off can be updated as well.
+
+### Which image
+
+**Exactly the ESP-Hosted version your firmware was built with** — not the
+newest one upstream. Core 3.3.12 builds in 2.12.13. The page links the
+matching file on Espressif's Arduino mirror:
+
+```txt
+https://espressif.github.io/arduino-esp32/hosted/<chip>-v<version>.bin
+https://espressif.github.io/arduino-esp32/hosted/esp32c6-v2.12.13.bin
+```
+
+Only the files exist there; the site's root answers *Site not found*. ESP-Hosted
+3.x (the upstream `esp-hosted-mcu` default branch) changed its RPC and wire
+protocol, and nothing states that a 2.x host and a 3.x co-processor work
+together; the portal refuses any version other than the host's. When a core
+update brings a new ESP-Hosted version, the link and the check follow it.
+A core of your own build may have a version Espressif publishes no image for;
+build the co-processor firmware from `esp-hosted-mcu` at the same release then.
+
+**Order:** update your own firmware first (the usual OTA, built with the new
+core), then the co-processor. The other way round, the co-processor would be
+newer than the firmware that talks to it. In between, the new firmware runs
+with the old co-processor: on Ethernet that does not matter; over Wi-Fi it
+worked on the one old firmware tried (old enough not to report its version),
+which was then updated over the same Wi-Fi.
+
+### The update
+
+*Update co-processor* uploads the file you downloaded; *Download and update*
+(with `CONFIG_PORTAL_HOSTED_FETCH=1`) has the device download it. Either way:
+
+1. The image is kept in **PSRAM** as a whole (~1.2 MB) and its head checked:
+   chip, ESP-Hosted project, version. A wrong file is refused before the
+   co-processor is touched.
+2. A task writes it to the co-processor's inactive partition, and the
+   co-processor verifies it. The page shows the progress.
+3. `onBeforeRestart(RestartReason::Coprocessor)` runs (see below), the
+   co-processor switches to the new image and restarts, and ESP-Hosted resets
+   the host within ~100 ms. The page waits for the device and reloads.
+
+Measured on a P4 with a C6 (1 226 976 bytes): download 0.8 s over Ethernet,
+1.7 s over Wi-Fi; starting the update 1.7 s (0.2 s on an old co-processor
+firmware); writing 8.4–9.0 s; 12–13 s from the button to the restart.
+
+Whatever fails before the activation — a wrong or damaged file, an upload
+that stops (dropped after 30 s, its memory freed), a power cut while
+writing — the co-processor keeps its firmware: only its inactive partition
+was written. One update runs at a time; a second one, or a firmware upload
+meanwhile, is answered `busy`, and the other way round.
+
+|Code|Meaning|
+|---|---|
+|`bad_file`|not a firmware image, or the upload was incomplete|
+|`wrong_chip`|an image for another chip (a P4 firmware, say)|
+|`not_hosted`|a firmware for the right chip, but not ESP-Hosted|
+|`version_mismatch`|ESP-Hosted, but not the host's version; the message names both|
+|`too_large` / `no_memory`|larger than an image can be / no PSRAM for it|
+|`no_coprocessor`|nothing answered: the board may have none|
+|`begin_failed` / `write_failed` / `bad_image`|the co-processor could not start / write / refused the image at the end|
+|`activate_failed`|it could not switch to the new image|
+|`timeout`|the upload stopped arriving|
+|`no_image`|Espressif publishes no image for this version (download)|
+|`fetch_failed`|the download failed; the message says why (download)|
+|`busy`|another update is running|
+
+### Downloading on the device
+
+The download goes over TLS **verified** against the core's built-in CA bundle
+— nothing else vouches for an image that is about to run on the
+co-processor. It is off by default for its size: the TLS client, the CA bundle
+and HTTPClient come to ~310 KB of flash on an ESP32-P4 whose application uses
+no TLS otherwise (measured: mbedTLS ~210 KB, the bundle 69 KB, HTTPClient
+~33 KB), more than the default app partition can spare next to an
+application. An application that already uses TLS with the bundle (MQTT over
+TLS, say) pays only for HTTPClient. The upload needs none of this, and is the
+way for a device without internet.
+
+### Without the page
+
+The same requests work from a script, with the portal's credentials and an
+`Origin` header naming the device (see *Requests from other sites*):
+
+```sh
+curl --digest -u admin:secret -H "Origin: http://192.168.1.50" \
+     -F "file=@esp32c6-v2.12.13.bin" http://192.168.1.50/hostedota
+curl --digest -u admin:secret -H "Origin: http://192.168.1.50" \
+     -d "" http://192.168.1.50/hostedfetch
+```
+
+Both answer once the work has started; `GET /firmware` reports the rest in its
+`hosted` object (`state`: `receiving`, `fetching`, `writing`, `activating`,
+`failed` with `err`; `done` and `total` in bytes).
+
 ## Before the portal restarts the device
 
 The portal restarts the device itself after a firmware upload, *Boot
-previous*, *Restart* and *Factory reset*. An application that keeps something
-in RAM it must not lose — a running total, a counter — registers a callback,
-and the portal calls it once, just before each of those restarts:
+previous*, *Restart*, *Factory reset* and a co-processor update. An application
+that keeps something in RAM it must not lose — a running total, a counter
+— registers a callback, and the portal calls it once, just before each of those
+restarts:
 
 ```cpp
 portal.onBeforeRestart([](AsyncConfigPortal::RestartReason why) {
@@ -523,6 +645,7 @@ portal.onBeforeRestart([](AsyncConfigPortal::RestartReason why) {
 |`Revert`|*Boot previous*|the older image from the other slot|
 |`Request`|*Restart*|the same image again|
 |`FactoryReset`|*Factory reset*, once the reset handlers have run|the same image, with defaults|
+|`Coprocessor`|a co-processor update, before its activation|the same image; ESP-Hosted resets the host ~100 ms after the activation|
 
 On `FactoryReset` the reset handlers have already erased their namespaces:
 saving would write back what was just erased. On `Revert` the firmware that

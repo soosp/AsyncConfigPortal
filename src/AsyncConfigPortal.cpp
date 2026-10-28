@@ -867,6 +867,7 @@ void AsyncConfigPortal::_restartNow() {
     ESP.restart();
 }
 
+
 // -----------------------------------------------------------------------------
 // Built-in Other page: OTA / restart / factory reset / password / backup
 // -----------------------------------------------------------------------------
@@ -906,7 +907,12 @@ void AsyncConfigPortal::_registerOtherPage() {
     // unconfirmed update, and whether the other slot holds a bootable image.
     _server.on("/firmware", HTTP_GET, [this](AsyncWebServerRequest* req) {
         if (!requireAuth(req)) return;
+#if CONFIG_PORTAL_HOSTED_OTA
+        // The object below, then the hosted one written over its closing brace.
+        char json[96 + HOSTED_JSON_LEN];
+#else
         char json[96];
+#endif
 #if defined(ARDUINO_ARCH_ESP32)
         const esp_partition_t* other = esp_ota_get_next_update_partition(nullptr);
         esp_ota_img_states_t st;
@@ -924,6 +930,17 @@ void AsyncConfigPortal::_registerOtherPage() {
 #else
         snprintf(json, sizeof(json),
                  "{\"supported\":0,\"pending\":0,\"other\":0,\"rolled_back\":0}");
+#endif
+#if CONFIG_PORTAL_HOSTED_OTA
+        // Written over the closing brace of the object above, and closing it
+        // again; if it does not fit, the brace goes back and the page simply
+        // shows no co-processor section.
+        const size_t n = strlen(json);
+        if (n > 0 && json[n - 1] == '}' &&
+            !_hostedJson(json + n - 1, sizeof(json) - (n - 1))) {
+            json[n - 1] = '}';
+            json[n]     = '\0';
+        }
 #endif
         req->send(200, "application/json", json);
     });
@@ -999,11 +1016,23 @@ void AsyncConfigPortal::_registerOtherPage() {
         _scheduleRestart(RestartReason::FactoryReset);
     });
 
+#if CONFIG_PORTAL_HOSTED_OTA
+    _registerHostedRoutes();
+#endif
+
     // OTA firmware update: upload handler + completion handler.
     _server.on("/update", HTTP_POST,
         // onRequest: fires after the upload completes.
         [this](AsyncWebServerRequest* req) {
             if (!requireAuth(req)) return;
+#if CONFIG_PORTAL_HOSTED_OTA
+            if (_otaBusy) {
+                _otaBusy = false;
+                sendResult_P(req, 409, "busy", -1,
+                    PSTR("A co-processor update is running. Nothing was changed."));
+                return;
+            }
+#endif
             // A marker mismatch is reported distinctly from a flash error.
             if (_otaReject) {
                 sendResult_P(req, 400, "fw_mismatch", -1,
@@ -1030,6 +1059,14 @@ void AsyncConfigPortal::_registerOtherPage() {
             if (!originAllowed(req, false)) return;
             if (!requireAuth(req)) return;
 
+#if CONFIG_PORTAL_HOSTED_OTA
+            // One update at a time: not while the co-processor is being written.
+            if (index == 0) {
+                const HState hs = (HState)_hState.load();
+                _otaBusy = hs != HState::Idle && hs != HState::Failed;
+            }
+            if (_otaBusy) return;
+#endif
             if (index == 0) {
                 // The identity marker lives in the image's .rodata, which can be
                 // well past the first chunk, so we can't validate up-front. We

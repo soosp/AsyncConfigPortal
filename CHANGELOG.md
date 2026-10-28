@@ -20,6 +20,34 @@ and this project adheres to
   ESP8266 between two `loop()` passes. Without one, nothing changes
 - `CONFIG_PORTAL_RESTART_STACK` (4096 on ESP32): the restart task's stack,
   raised from 2048 for the callback
+- The Other page shows the ESP-Hosted co-processor where there is one (an
+  ESP32-P4 with a C6): the ESP-Hosted version built into this firmware, the
+  co-processor's own, whether they differ, and a link to the image that
+  matches this firmware. `/firmware` carries it as `hosted`. On by default
+  where the build has ESP-Hosted and the board variant declares a
+  co-processor (`BOARD_HAS_SDIO_ESP_HOSTED`); `CONFIG_PORTAL_HOSTED_OTA`
+  overrides it, and warns when set without ESP-Hosted. The portal never
+  starts ESP-Hosted itself: until the application has started Wi-Fi the
+  section reads "not running"
+- The co-processor can be updated from the Other page with an uploaded image
+  (`/hostedota`). The upload is kept in PSRAM and checked on the way in: its
+  chip, that it is ESP-Hosted (`network_adapter`), and that its version is
+  exactly the one this firmware was built with (`wrong_chip`, `not_hosted`,
+  `version_mismatch`). A task then writes it to the co-processor while the
+  page shows the progress; no request handler talks to the co-processor.
+  Whatever fails, the co-processor keeps its firmware.
+  `RestartReason::Coprocessor`: the callback runs before the activation,
+  after which ESP-Hosted resets the host by itself
+- `/update` answers `busy` while a co-processor update runs, and the other
+  way round
+- *Download and update* (`/hostedfetch`): the device downloads the matching
+  image from Espressif's mirror itself, over TLS verified against the core's
+  CA bundle, and writes it as it does an upload. `no_image` when Espressif
+  publishes none for this version, `fetch_failed` with the reason otherwise;
+  the upload stays for a device without internet. Off by default:
+  `CONFIG_PORTAL_HOSTED_FETCH=1` turns it on. It brings the TLS client and
+  HTTPClient into the build, ~310 KB of flash on an ESP32-P4 when nothing else
+  uses TLS
 
 ### Fixed
 

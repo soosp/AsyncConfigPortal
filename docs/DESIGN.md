@@ -343,3 +343,76 @@ past, whereas greyed-out readings make staleness obvious at a glance while
 keeping the last known state legible. Pages with their own animation must opt in
 to stopping — the GPS/NTP clock checks `netIsDown()` in its tick, otherwise it
 would keep counting behind a dead device.
+
+## Co-processor update (ESP-Hosted)
+
+Source: `src/AsyncConfigPortalHosted.cpp`; user side in the README. Measured on
+a Waveshare ESP32-P4-WIFI6-ETH (P4 + C6), core 3.3.12, ESP-Hosted 2.12.13, an
+image of 1 226 976 bytes.
+
+**The portal does not start ESP-Hosted by itself.** `hostedInit()` configures
+SDIO and toggles the co-processor's reset pin (GPIO54 on the P4). The core
+enables ESP-Hosted in every P4 build, so a build cannot tell from that alone
+whether the pin leads to a co-processor or to something else; the variant's
+`BOARD_HAS_SDIO_ESP_HOSTED` can, and decides whether the section is compiled
+in. Even then only the user's explicit update starts it.
+
+**No RPC from a request handler.** The first design wrote each block from the
+upload handler, on measurements with current co-processor firmware over
+Ethernet (~17 ms a 4 KB block, well inside the AsyncTCP task's watchdog).
+Updating an old C6 over Wi-Fi — the case the feature is for — tripped that
+watchdog: the upload arrived through the very chip being written, and old
+firmware erases while it writes. So the work is split:
+
+|Who|Does|
+|---|---|
+|upload handler (AsyncTCP)|copies into one PSRAM buffer of the request's size; checks the image head (first 256 bytes) against the cached chip name — no RPC|
+|writer task (short-lived, `hostedWrite`)|starts ESP-Hosted if needed; downloads the image (fetch); checks the chip again from the co-processor; Begin, 2 KB writes, End; frees the buffer; `onBeforeRestart(Coprocessor)`; Activate|
+|esp_timer (`hostedWatch`, every 5 s while receiving)|drops an upload that stopped for 30 s and frees its buffer, without waiting for a request|
+
+`HState` (`Idle → Receiving | Fetching → Writing → Activating`, any → `Failed`)
+lets each step start only from the state before it. A `std::mutex` guards the
+buffer between the upload handler and the timer; the writer task owns the
+buffer once it runs. The whole image is in memory before the first write, so on
+Wi-Fi the upload or download never shares the co-processor's link with the
+writes, and a refused file costs no erase.
+
+**Block size 2 KB.** 4 KB is faster with current firmware (5.1 s against
+8.4 s for the image), but an old firmware left a 4 KB write unanswered; the
+core's own updater (`ESP_HostedOTA`) writes 2 KB and updated it fine.
+
+**Timings.**
+
+|Step|Current firmware|Old firmware (v1.3 board)|
+|---|---|---|
+|Begin (erases the inactive partition)|1.69 s; 0.93–0.96 s after an abandoned session|0.20 s (erases while writing)|
+|Writes, 2 KB|8.4–8.5 s|9.0 s (over Wi-Fi)|
+|End (verifies)|150–175 ms|—|
+|Activate|177–180 ms|—|
+|Download (fetch)|0.76 s Ethernet, 1.7 s Wi-Fi|—|
+
+300 concurrent `esp_wifi_get_mac()` calls during the writes: all answered, the
+image intact — the RPC layer queues callers, so `loop()`'s Wi-Fi calls slow down
+but do not fail. An abandoned session needs no cleanup: the next Begin starts
+afresh.
+
+**Activate resets the host.** ~100 ms after `hostedActivateUpdate()`
+ESP-Hosted resets the P4 itself (`SW_CPU_RESET`). Everything that must precede
+the restart — the page seeing `activating` (hence a 1 s pause first), the log,
+the application's callback — happens before the activation; the portal's own
+restart 5 s later is only a fallback.
+
+**The version rule.** The co-processor's version must equal the host's
+(`hostedGetHostVersion()`), not the newest upstream. ESP-Hosted 3.0 reworked
+the RPC and the wire protocol; its README says to take both sides from the same
+release, and nothing states that a 2.x host and a 3.x co-processor talk. A
+mismatch is refused before it can cost a Wi-Fi-only device its network.
+
+**Download.** Verified TLS with the core's CA bundle, unlike the core's own
+example (`setInsecure()`): nothing else authenticates the image. Opt-in
+(`CONFIG_PORTAL_HOSTED_FETCH`) for its flash, measured on a P4 against a build
+without TLS: +314 KB, of which mbedTLS ~210 KB, the bundle 69 KB, HTTPClient
+~33 KB. A hand-written GET would save the 33 KB at the cost of status-line,
+header and redirect handling of our own; a pinned root instead of the bundle
+would save 69 KB and break the day GitHub changes CA. The task's stack is
+8 KB for the TLS handshake; 4.8 KB of it was left unused.

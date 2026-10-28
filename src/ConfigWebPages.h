@@ -1,6 +1,7 @@
 #pragma once
 
 #include <Arduino.h>
+#include "detail/hosted_config.h"   // CONFIG_PORTAL_HOSTED_OTA: the co-processor section
 
 /**
  * @file ConfigWebPages.h
@@ -715,11 +716,45 @@ s.disabled=!ok;}
 function pwSaved(){var x=new XMLHttpRequest();x.open('GET','/authdata',true,'x','x');x.send();
 setTimeout(function(){location.href='/';},600);}
 function setFw(o){var r=ID('fwRun'),t=ID('fwOther'),s=ID('revertSubmit'),c=ID('vc');
+if(typeof setHosted=='function')setHosted(o.hosted);
 if(!o.supported){ID('revertForm').style.display='none';return;}
 r.textContent=o.pending?'an update, not confirmed yet':'confirmed';
 t.textContent=o.other?(o.rolled_back?'the update that was rolled back':'the firmware before the last update'):'empty';
 if(!o.other){c.disabled=true;s.disabled=true;}}
 function init(){initCommon();getJSON('/authdata',setData);getJSON('/firmware',setFw);}
+)HTML"
+#if CONFIG_PORTAL_HOSTED_OTA
+R"HTML(
+function setHosted(h){var g=ID('hostedForm');if(!h){g.style.display='none';return;}
+g.style.display='';ID('hHost').textContent=h.host;
+ID('hSlave').textContent=!h.started?'not running':(h.slave?h.slave+' ('+h.target+')':'unknown (too old to say)');
+ID('hStatus').textContent=!h.started?'Unknown':(h.update?'Update available':'Up to date');
+var a=ID('hUrl');a.href=h.url;a.textContent=h.url.replace(/^.*\//,'');}
+var H_ERR={no_coprocessor:'No co-processor answered. This board may not have one',
+begin_failed:'The co-processor could not start an update',
+write_failed:'Writing to the co-processor failed. It still runs its previous firmware',
+bad_image:'The co-processor refused the image. It still runs its previous firmware',
+wrong_chip:'This file is for another chip',
+activate_failed:'The co-processor could not switch to the new image',
+no_image:'Espressif publishes no image for this version',
+fetch_failed:'The download failed. Download the file from the link above and upload it'};
+function hostedGo(f){if(!ID('hFile').files.length){pfMsg(PF_ERR.no_file,'bad',f);return false;}
+return pfSubmit(f,{busy:'Uploading...',failText:'Not updated',done:function(){hostedWatch(f);}});}
+function hostedFetch(f){return pfPost('/hostedfetch',new URLSearchParams(),{busy:'Starting the download...',failText:'Not updated',button:ID('hFetch'),done:function(){hostedWatch(f);}},f);}
+function hostedWatch(f){var u=pfParts(f).b,v=ID('hFetch'),M=function(t,k){pfMsg(t,k,f);},seen=false,
+D=function(d){u.disabled=d;if(v)v.disabled=d;};D(true);
+(function w(){var y=new XMLHttpRequest();y.onreadystatechange=function(){if(y.readyState!=4)return;
+if(y.status===0){if(seen){pfRestarting('Co-processor updated. The device is restarting...');return;}setTimeout(w,1000);return;}
+var h=null;try{h=JSON.parse(y.responseText).hosted;}catch(e){}
+if(!h){setTimeout(w,1000);return;}
+if(h.state=='fetching'){M('Downloading the image...'+(h.total?' '+Math.round(100*h.done/h.total)+'%':''),'');setTimeout(w,500);return;}
+if(h.state=='writing'){seen=true;M('Writing to the co-processor...'+(h.total?' '+Math.round(100*h.done/h.total)+'%':''),'');setTimeout(w,500);return;}
+if(h.state=='activating'){pfRestarting('Co-processor updated. The device is restarting...');return;}
+if(h.state=='failed'){D(false);M('Not updated: '+(H_ERR[h.err]||PF_ERR[h.err]||h.err),'bad');return;}
+D(false);M('','');};y.open('GET','/firmware',true);y.timeout=3000;y.send();})();}
+)HTML"
+#endif
+R"HTML(
 </script>
 )HTML"
 CONFIG_PORTAL_HEADER
@@ -758,6 +793,28 @@ R"HTML(
     </div>
     <div class="submit"><input type="submit" id="revertSubmit" value="Boot previous" disabled><span class="pmsg"></span></div>
   </form>
+)HTML"
+#if CONFIG_PORTAL_HOSTED_OTA
+R"HTML(
+  <form method="post" enctype="multipart/form-data" action="/hostedota" id="hostedForm" style="display:none" onsubmit="return hostedGo(this)">
+    <div class="group">
+      <div class="group-title">Co-processor</div>
+      <div class="row"><span class="label">Host:</span><span class="value" id="hHost"></span></div>
+      <div class="row"><span class="label">Co-processor:</span><span class="value" id="hSlave"></span></div>
+      <div class="row"><span class="label">Status:</span><span class="value" id="hStatus"></span></div>
+      <div class="row"><span class="label">Image:</span><span class="value"><a id="hUrl" target="_blank" rel="noopener"></a></span></div>
+      <div class="row"><span class="label">File:</span><span class="value">
+        <input type="file" id="hFile" name="hostedFile" accept=".bin" required></span></div>
+    </div>
+    <div class="submit"><input type="submit" value="Update co-processor">)HTML"
+#if CONFIG_PORTAL_HOSTED_FETCH
+R"HTML( <input type="button" id="hFetch" value="Download and update" onclick="hostedFetch(this.form)">)HTML"
+#endif
+R"HTML(<span class="pmsg"></span></div>
+  </form>
+)HTML"
+#endif
+R"HTML(
   <form method="post" action="/factoryreset" id="resetForm">
     <div class="group">
       <div class="group-title">Factory reset</div>
