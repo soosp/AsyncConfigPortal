@@ -819,17 +819,25 @@ void AsyncConfigPortal::_handleStatusData(AsyncWebServerRequest* req) const {
 // The delay lets the reply go out first. ESP32 uses a short-lived task on the
 // caller's core; ESP8266 (no FreeRTOS) uses a one-shot Ticker.
 
-void AsyncConfigPortal::_scheduleRestart() {
+void AsyncConfigPortal::_scheduleRestart(RestartReason reason) {
+    // One restart: a second request in the flush window (a double click, two
+    // tabs) would otherwise run the callback twice. A load and a store rather
+    // than exchange(): the xtensa-lx106 toolchain ships no libatomic, and every
+    // caller is a request handler, which all run in one context (the AsyncTCP
+    // task on ESP32, SYS on ESP8266), so no two can interleave here.
+    if (_restartScheduled.load()) return;
+    _restartScheduled.store(true);
+    _restartReason = reason;
 #if defined(ARDUINO_ARCH_ESP32)
     // ESP32: a short-lived task on the caller's core, so the flush delay does not
-    // block the async handler.
+    // block the async handler. Its stack is sized for the callback as well.
     BaseType_t core = xTaskGetCoreID(nullptr);
     xTaskCreatePinnedToCore(
-        [](void*) {
+        [](void* self) {
             vTaskDelay(pdMS_TO_TICKS(CONFIG_PORTAL_RESTART_DELAY_MS)); // let the HTTP response flush
-            ESP.restart();
+            static_cast<AsyncConfigPortal*>(self)->_restartNow();
         },
-        "cfgRestart", 2048, nullptr, 1, nullptr, core);
+        "cfgRestart", CONFIG_PORTAL_RESTART_STACK, this, 1, nullptr, core);
 #elif defined(ARDUINO_ARCH_ESP8266)
     // ESP8266 has no FreeRTOS: a one-shot Ticker fires the restart off the async
     // handler after the same flush delay.
@@ -846,11 +854,17 @@ void AsyncConfigPortal::_scheduleRestart() {
     //
     // schedule_function() queues the call for the cont context, so it runs
     // between two loop() passes with nothing else in flight. The delay still
-    // belongs to the Ticker: the response has to flush first.
-    _restartTicker.once_ms(CONFIG_PORTAL_RESTART_DELAY_MS, +[]() {
-        schedule_function([]() { ESP.restart(); });
+    // belongs to the Ticker: the response has to flush first. The callback
+    // runs there too, which on this platform makes it safe for anything.
+    _restartTicker.once_ms(CONFIG_PORTAL_RESTART_DELAY_MS, [this]() {
+        schedule_function([this]() { _restartNow(); });
     });
 #endif
+}
+
+void AsyncConfigPortal::_restartNow() {
+    if (_onBeforeRestart) _onBeforeRestart(_restartReason);
+    ESP.restart();
 }
 
 // -----------------------------------------------------------------------------
@@ -927,7 +941,7 @@ void AsyncConfigPortal::_registerOtherPage() {
         }
         logf(LogLevel::Warn, "fw", PSTR("booting the other slot (%s) on request"), other->label);
         sendResult(req, 200, "ok", -1, nullptr, true);   // the page waits for it
-        _scheduleRestart();
+        _scheduleRestart(RestartReason::Revert);
 #else
         sendResult_P(req, 400, "no_firmware", -1, PSTR("Not available on this platform."));
 #endif
@@ -939,7 +953,7 @@ void AsyncConfigPortal::_registerOtherPage() {
         sendResult(req, 200, "ok", -1, nullptr, true);   // the page waits for it
         // Reboot from a short-lived task so the response flushes first (see the
         // OTA handler for the rationale).
-        _scheduleRestart();
+        _scheduleRestart(RestartReason::Request);
     });
 
     // Factory reset: erase every registered target, then the credentials, then
@@ -982,7 +996,7 @@ void AsyncConfigPortal::_registerOtherPage() {
              (unsigned)failed, (unsigned)(_resetCount + 1));
 
         sendProgmem(req, 200, "text/html", CONFIG_PORTAL_FACTORYRESET_HTML);
-        _scheduleRestart();
+        _scheduleRestart(RestartReason::FactoryReset);
     });
 
     // OTA firmware update: upload handler + completion handler.
@@ -1005,7 +1019,7 @@ void AsyncConfigPortal::_registerOtherPage() {
             // inside the async handler cuts the TCP connection before the reply
             // is fully flushed, which the browser sees as a timeout. The task
             // waits long enough for the response to be sent, then reboots.
-            if (ok) _scheduleRestart();
+            if (ok) _scheduleRestart(RestartReason::Firmware);
         },
         // onUpload: fires for each chunk.
         [this](AsyncWebServerRequest* req, const String& filename, size_t index,

@@ -9,6 +9,23 @@ and this project adheres to
 
 ## [Unreleased]
 
+### Added
+
+- `onBeforeRestart(RestartFn)`: a callback run once just before each restart
+  the portal performs — after a firmware upload, *Boot previous*, *Restart*
+  and *Factory reset* — with the reason (`RestartReason::Firmware`, `Revert`,
+  `Request`, `FactoryReset`). For state an application must not lose; the
+  reason tells it when saving would be wrong (a factory reset has just erased
+  it). On ESP32 it runs in the restart task, concurrently with `loop()`; on
+  ESP8266 between two `loop()` passes. Without one, nothing changes
+- `CONFIG_PORTAL_RESTART_STACK` (4096 on ESP32): the restart task's stack,
+  raised from 2048 for the callback
+
+### Fixed
+
+- A second restart request within the flush delay (a double click, two tabs)
+  started a second restart task; now the first one stands
+
 ## [0.17.0] - 2026-10-25
 
 ### Added

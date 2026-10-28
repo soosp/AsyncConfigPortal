@@ -82,6 +82,14 @@
 #  define CONFIG_PORTAL_RESTART_DELAY_MS 600
 #endif
 
+// Stack (bytes) of the ESP32 task that runs the deferred restart. It also runs
+// the onBeforeRestart() callback, where an application typically writes NVS,
+// which needs more than the bare restart did. Unused on ESP8266, which has no
+// such task: there the callback runs on loop()'s own stack.
+#ifndef CONFIG_PORTAL_RESTART_STACK
+#  define CONFIG_PORTAL_RESTART_STACK 4096
+#endif
+
 /**
  * @brief Reusable base class for a modular web configuration interface.
  *
@@ -276,6 +284,39 @@ public:
      *               esp_log_level_set() instead of collapsing into one label for
      *               the whole server. Always a string literal, never null. */
     using LogFn = std::function<void(LogLevel level, const char* tag, const char* msg)>;
+
+    /**
+     * @brief Why the portal is about to restart the device.
+     *
+     * Only the restarts the portal itself performs. A save on the Network, MQTT
+     * or Backup page that needs a restart is the application's (onSaved), so it
+     * knows already and has no value here.
+     */
+    enum class RestartReason : uint8_t {
+        Firmware,     ///< a firmware upload succeeded; the new image boots, unconfirmed
+        Revert,       ///< "Boot previous": the older firmware in the other slot boots
+        Request,      ///< the Restart button; the same firmware boots again
+        FactoryReset, ///< after the reset handlers ran: what they erased must not be saved again
+    };
+
+    /**
+     * @brief Called once, just before a restart the portal performs.
+     *
+     * For what must not be lost and is not saved already: a running total, a
+     * counter. Not for anything slow: the restart waits for it.
+     *
+     * The reason matters. On FactoryReset the reset handlers have already
+     * erased their namespaces, and saving would write back what was just
+     * erased. On Revert the firmware that boots next is older and may not read
+     * a record in a newer format.
+     *
+     * Where it runs: on ESP32 in the portal's short-lived restart task, after
+     * the response has gone out — concurrently with loop(), so only what is
+     * safe from another task belongs here (an NVS write through Preferences is;
+     * an MQTT publish through a client loop() also uses is not). On ESP8266 in
+     * the cont context between two loop() passes, like the restart itself.
+     */
+    using RestartFn = std::function<void(RestartReason reason)>;
 
     // -------------------------------------------------------------------------
     // Constructor / Destructor
@@ -915,6 +956,13 @@ public:
     void setLogger(LogFn fn) { _log = std::move(fn); }
 
     /**
+     * @brief Registers a callback run just before every restart the portal
+     *        performs (RestartFn). Optional: without one the restarts are
+     *        unchanged. Set it before begin().
+     */
+    void onBeforeRestart(RestartFn fn) { _onBeforeRestart = std::move(fn); }
+
+    /**
      * @brief Writes a formatted line to the configured log sink.
      *
      * Public so that components attached by composition can report. They are
@@ -1107,8 +1155,13 @@ private:
      *  @return false if the registry is full. */
     bool _addMenuEntry(const char* path, const char* label, int8_t order);
 
-    /** @brief Reboots via a short-lived task so the HTTP response flushes first. */
-    void _scheduleRestart();
+    /** @brief Reboots via a short-lived task so the HTTP response flushes
+     *  first, calling onBeforeRestart() on the way. */
+    void _scheduleRestart(RestartReason reason);
+
+    /** @brief The restart itself, after the flush delay: the callback, then
+     *  ESP.restart(). */
+    void _restartNow();
 
     /** @brief Reports the firmware's state at begin() and arms the
      *  confirmation (ESP32). */
@@ -1143,6 +1196,11 @@ private:
 #endif
     HttpDigestAuth* _auth = nullptr;
     LogFn           _log;   ///< Optional diagnostic sink; silent if unset.
+    RestartFn       _onBeforeRestart;   ///< onBeforeRestart(); empty if unset
+    RestartReason   _restartReason = RestartReason::Request;   ///< for _restartNow()
+    /// Set by the first _scheduleRestart(): a second request (a double click)
+    /// does not run the callback twice.
+    std::atomic<bool> _restartScheduled{false};
     uint32_t        _fwConfirmDelayS = 60;   ///< setFirmwareConfirmDelay()
     FirmwareConfirm _fwConfirmBy = FirmwareConfirm::Timer;
     /// Confirmed, or nothing to confirm. Written by the async_tcp task (a

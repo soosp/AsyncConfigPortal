@@ -502,3 +502,44 @@ core whose sdkconfig lacks `CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE` (the
 bootloader is the core's, prebuilt, so an application cannot turn it on);
 the build then says so with a `#warning`. The official Arduino core 3.x
 has it on.
+
+## Before the portal restarts the device
+
+The portal restarts the device itself after a firmware upload, *Boot
+previous*, *Restart* and *Factory reset*. An application that keeps something
+in RAM it must not lose — a running total, a counter — registers a callback,
+and the portal calls it once, just before each of those restarts:
+
+```cpp
+portal.onBeforeRestart([](AsyncConfigPortal::RestartReason why) {
+    if (why == AsyncConfigPortal::RestartReason::FactoryReset) return;
+    totals.save();
+});
+```
+
+|`RestartReason`|After|What boots next|
+|---|---|---|
+|`Firmware`|a firmware upload|the new image, unconfirmed|
+|`Revert`|*Boot previous*|the older image from the other slot|
+|`Request`|*Restart*|the same image again|
+|`FactoryReset`|*Factory reset*, once the reset handlers have run|the same image, with defaults|
+
+On `FactoryReset` the reset handlers have already erased their namespaces:
+saving would write back what was just erased. On `Revert` the firmware that
+boots next is older, and may not read a record in a newer format.
+
+The callback runs after the response has gone out and before the restart,
+which waits for it, so it should be short. On ESP32 it runs in the portal's
+restart task, **concurrently with `loop()`**: an NVS write through
+`Preferences` is safe there, but a client that `loop()` uses as well — an MQTT
+client, say — is not. The broker's will covers an MQTT "offline" anyway. On
+ESP8266 it runs between two `loop()` passes, where anything is safe.
+
+Without a callback the restarts are what they were. Restarts an application
+performs itself — after a save on the Network, MQTT or Backup page — are its
+own, and do not go through here.
+
+On ESP32 the restart task's stack is `CONFIG_PORTAL_RESTART_STACK` (4096
+bytes), enough for an NVS write; raise it for a heavier callback. ESP8266 has
+no such task, and the macro is unused there: the callback runs on `loop()`'s
+own stack.
