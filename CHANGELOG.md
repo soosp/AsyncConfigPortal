@@ -9,6 +9,8 @@ and this project adheres to
 
 ## [Unreleased]
 
+## [0.18.2] - 2026-11-02
+
 ### Fixed
 
 - ESP8266: the low-memory guard could refuse a page's script or stylesheet, and
@@ -641,7 +643,8 @@ none of them has neither dependency.
   an unconfigured one settles on a fixed address when no DHCP answers, and a
   deployed one moves to it on a button press).
 
-[Unreleased]: https://github.com/soosp/AsyncConfigPortal/compare/0.18.1...HEAD
+[Unreleased]: https://github.com/soosp/AsyncConfigPortal/compare/0.18.2...HEAD
+[0.18.2]: https://github.com/soosp/AsyncConfigPortal/compare/0.18.1...0.18.2
 [0.18.1]: https://github.com/soosp/AsyncConfigPortal/compare/0.18.0...0.18.1
 [0.18.0]: https://github.com/soosp/AsyncConfigPortal/compare/0.17.0...0.18.0
 [0.17.0]: https://github.com/soosp/AsyncConfigPortal/compare/0.16.1...0.17.0
