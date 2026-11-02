@@ -9,6 +9,8 @@ and this project adheres to
 
 ## [Unreleased]
 
+## [0.18.1] - 2026-11-02
+
 ### Fixed
 
 - ESP8266: a page load could exhaust the heap and leave the device accepting no
@@ -622,7 +624,8 @@ none of them has neither dependency.
   an unconfigured one settles on a fixed address when no DHCP answers, and a
   deployed one moves to it on a button press).
 
-[Unreleased]: https://github.com/soosp/AsyncConfigPortal/compare/0.18.0...HEAD
+[Unreleased]: https://github.com/soosp/AsyncConfigPortal/compare/0.18.1...HEAD
+[0.18.1]: https://github.com/soosp/AsyncConfigPortal/compare/0.18.0...0.18.1
 [0.18.0]: https://github.com/soosp/AsyncConfigPortal/compare/0.17.0...0.18.0
 [0.17.0]: https://github.com/soosp/AsyncConfigPortal/compare/0.16.1...0.17.0
 [0.16.1]: https://github.com/soosp/AsyncConfigPortal/compare/0.16.0...0.16.1
