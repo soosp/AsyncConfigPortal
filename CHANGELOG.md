@@ -9,6 +9,23 @@ and this project adheres to
 
 ## [Unreleased]
 
+### Fixed
+
+- ESP8266: the low-memory guard could refuse a page's script or stylesheet, and
+  the browser does not retry those: the page stayed loaded-looking and dead.
+  The guard now has two floors. Requests from a page's script, which mark
+  themselves with `X-Requested-With` and are retried, are refused below
+  `CONFIG_PORTAL_MIN_FREE_BLOCK` (6 kB) as before; pages, assets and other
+  clients only below `CONFIG_PORTAL_MIN_FREE_BLOCK_ASSETS` (3 kB), where
+  serving them would fail anyway. A refused page gets a one-line reply that
+  reloads itself after a second
+- A page whose `/common.js` or `/fields.js` did not arrive whole — refused, or
+  cut off by a stalled connection — now reloads itself from its header, at
+  most three times in a row (counted in `sessionStorage`). Before, it looked
+  loaded and did nothing. Every platform; a page of one's own that uses
+  `CONFIG_PORTAL_HEADER` must load `/common.js`, as it already needed to for
+  its menu
+
 ## [0.18.1] - 2026-11-02
 
 ### Fixed

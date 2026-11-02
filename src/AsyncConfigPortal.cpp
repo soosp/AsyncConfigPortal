@@ -45,14 +45,21 @@ void AsyncConfigPortal::begin(HttpDigestAuth& auth) {
     //    every route, whoever registered it. Upload data reaches its handler
     //    before this runs, so the upload handlers check each chunk as well.
     _server.addMiddleware([this](AsyncWebServerRequest* req, ArMiddlewareNext next) {
-#if CONFIG_PORTAL_MIN_FREE_BLOCK > 0
+#if ACP_DETAIL_LOW_HEAP_GUARD
         // Short of memory: refuse a read at once rather than let its handler
         // build a response the heap cannot hold (detail/load_config.h). Reads
         // only — a POST is something the user did and is waiting for, and an
-        // upload has already been written by the time this runs.
-        if (!_changesState(req) && _largestFreeBlock() < CONFIG_PORTAL_MIN_FREE_BLOCK) {
-            _refuseLowHeap(req);
-            return;
+        // upload has already been written by the time this runs. A page's
+        // script retries what it is refused, so its requests give way first;
+        // pages and their assets only when serving them would fail anyway.
+        if (!_changesState(req)) {
+            const bool fromScript = req->hasHeader("X-Requested-With");
+            const uint32_t floor  = fromScript ? CONFIG_PORTAL_MIN_FREE_BLOCK
+                                               : CONFIG_PORTAL_MIN_FREE_BLOCK_ASSETS;
+            if (floor > 0 && _largestFreeBlock() < floor) {
+                _refuseLowHeap(req, fromScript);
+                return;
+            }
         }
 #endif
         if (_changesState(req) && !originAllowed(req)) {
@@ -582,7 +589,7 @@ void AsyncConfigPortal::setProject(const char* name, const char* version,
 // Auth helper
 // -----------------------------------------------------------------------------
 
-#if CONFIG_PORTAL_MIN_FREE_BLOCK > 0
+#if ACP_DETAIL_LOW_HEAP_GUARD
 uint32_t AsyncConfigPortal::_largestFreeBlock() {
 #if defined(ARDUINO_ARCH_ESP8266)
     return ESP.getMaxFreeBlockSize();
@@ -593,8 +600,10 @@ uint32_t AsyncConfigPortal::_largestFreeBlock() {
 
 /// The 503, and a line in the log at most every ten seconds: a page load that
 /// meets a short heap sends several requests, and logging each would only
-/// spend more of what is short.
-void AsyncConfigPortal::_refuseLowHeap(AsyncWebServerRequest* req) {
+/// spend more of what is short. A page the browser navigated to gets a line
+/// that reloads it, since nothing else would; a script's request gets nothing,
+/// since getJSON() retries it.
+void AsyncConfigPortal::_refuseLowHeap(AsyncWebServerRequest* req, bool fromScript) {
     _lowHeapRefused++;
     const uint32_t now = millis();
     if (now - _lowHeapLoggedMs >= 10000) {
@@ -604,7 +613,14 @@ void AsyncConfigPortal::_refuseLowHeap(AsyncWebServerRequest* req) {
         _lowHeapLoggedMs = now;
         _lowHeapRefused  = 0;
     }
-    req->send(503);
+    const AsyncWebHeader* a = fromScript ? nullptr : req->getHeader("Accept");
+    if (a && a->value().indexOf("text/html") >= 0) {
+        sendProgmem(req, 503, "text/html",
+                    PSTR("<!DOCTYPE html><meta http-equiv=\"refresh\" content=\"1\">"
+                         "<p>The device is busy. Retrying...</p>"));
+    } else {
+        req->send(503);
+    }
 }
 #endif
 

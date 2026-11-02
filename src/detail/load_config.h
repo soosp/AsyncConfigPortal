@@ -15,7 +15,7 @@
  * then stall holding their memory, the browser retries, and the device stops
  * accepting connections while its MQTT session carries on.
  *
- * Two limits, both off on ESP32, where the heap takes a page load many times
+ * Three limits, all off on ESP32, where the heap takes a page load many times
  * over:
  *
  * CONFIG_PORTAL_SERIALIZED_JS_REQUESTS — 1: the requests a page's own script
@@ -24,10 +24,21 @@
  * and /common.js are not the script's to order and are not affected, and nor
  * are form posts.
  *
- * CONFIG_PORTAL_MIN_FREE_BLOCK — a GET that arrives while the largest free block
- * is below this many bytes is answered 503 at once, before a handler builds
- * anything. Refusing one request is cheap; running out serves no one. getJSON()
- * retries a 503 after a second, up to three times. 0 turns the check off.
+ * CONFIG_PORTAL_MIN_FREE_BLOCK — a request from a page's script (getJSON() and
+ * the heartbeat, which say so in an X-Requested-With header) that arrives while
+ * the largest free block is below this many bytes is answered 503 at once,
+ * before a handler builds anything. Refusing one request is cheap; running out
+ * serves no one. getJSON() retries a 503 after a second, up to three times.
+ *
+ * CONFIG_PORTAL_MIN_FREE_BLOCK_ASSETS — the same for every other GET: pages,
+ * /css, /common.js, /fields.js, and clients other than the pages. Lower,
+ * because these are what a page cannot do without and the browser does not
+ * retry them: refused only when serving them would fail anyway. A page refused
+ * gets a one-line reply that reloads itself after a second; a page whose
+ * script did not arrive whole — refused, or cut off by a stalled connection —
+ * reloads itself from its header, at most three times in a row.
+ *
+ * 0 turns either check off.
  */
 
 #ifndef CONFIG_PORTAL_SERIALIZED_JS_REQUESTS
@@ -52,3 +63,14 @@
 #    define CONFIG_PORTAL_MIN_FREE_BLOCK 0
 #  endif
 #endif
+
+#ifndef CONFIG_PORTAL_MIN_FREE_BLOCK_ASSETS
+#  if defined(ARDUINO_ARCH_ESP8266)
+#    define CONFIG_PORTAL_MIN_FREE_BLOCK_ASSETS 3072
+#  else
+#    define CONFIG_PORTAL_MIN_FREE_BLOCK_ASSETS 0
+#  endif
+#endif
+
+#define ACP_DETAIL_LOW_HEAP_GUARD \
+    (CONFIG_PORTAL_MIN_FREE_BLOCK > 0 || CONFIG_PORTAL_MIN_FREE_BLOCK_ASSETS > 0)

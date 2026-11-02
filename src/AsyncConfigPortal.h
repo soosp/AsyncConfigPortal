@@ -1171,10 +1171,10 @@ private:
      *  ESP.restart(). */
     void _restartNow();
 
-#if CONFIG_PORTAL_MIN_FREE_BLOCK > 0
+#if ACP_DETAIL_LOW_HEAP_GUARD
     // ---- Low-heap guard (detail/load_config.h) ------------------------------
     static uint32_t _largestFreeBlock();
-    void _refuseLowHeap(AsyncWebServerRequest* req);
+    void _refuseLowHeap(AsyncWebServerRequest* req, bool fromScript);
     uint32_t _lowHeapRefused  = 0;   ///< refused since the last log line
     uint32_t _lowHeapLoggedMs = 0;
 #endif

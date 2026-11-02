@@ -210,12 +210,13 @@ page. Nothing here needs configuring — it is what you will see:
 - **A page load is metered on ESP8266.** Every request in flight holds about
   2.5–3 kB there, and a page asks for its menu, project data, login state and
   its own data together — measured on a full application, the Other page took
-  the free heap from 21 kB to 4.5 kB. Two limits keep that from tipping over:
+  the free heap from 21 kB to 4.5 kB. Three limits keep that from tipping over:
 
   |Macro|ESP8266|ESP32|What it does|
   |---|---:|---:|---|
   |`CONFIG_PORTAL_SERIALIZED_JS_REQUESTS`|1|0|1: the requests a page's script makes (`getJSON()`, the heartbeat) go out one at a time; 0: all at once. The browser's own fetches of the page and its assets, and form posts, are not affected|
-  |`CONFIG_PORTAL_MIN_FREE_BLOCK`|6144|0|a GET arriving while the largest free block is below this is answered 503 at once; `getJSON()` retries it after a second, three times. 0 is off|
+  |`CONFIG_PORTAL_MIN_FREE_BLOCK`|6144|0|a request from a page's script (marked `X-Requested-With`) arriving while the largest free block is below this is answered 503 at once; `getJSON()` retries it after a second, three times. 0 is off|
+  |`CONFIG_PORTAL_MIN_FREE_BLOCK_ASSETS`|3072|0|the same for every other GET — pages, `/css`, `/common.js`, `/fields.js`, other clients — at a lower floor, since nothing retries them. A refused page gets a line that reloads it after a second. 0 is off|
 
   The cost is a page that assembles a few round trips later — on a local
   network, about a tenth of a second. Without them a busy moment (a second
@@ -223,6 +224,14 @@ page. Nothing here needs configuring — it is what you will see:
   accepting no new connections while its MQTT session carried on. A 503 is
   logged at warning level, at most every ten seconds. ESP32 behaves as
   before.
+
+  A page's header also checks, on every platform, that `/common.js` (and on
+  form pages `/fields.js`) arrived whole, and reloads the page if not — at most
+  three times in a row. A script refused for memory, or cut off by a stalled
+  connection, otherwise leaves a page that looks loaded and does nothing. **A
+  page of your own that uses `CONFIG_PORTAL_HEADER` has to load
+  `/common.js`**, as every page needs for its menu anyway; without it the page
+  reloads three times before it stays.
 - `-DMQTT_CONFIG_TLS=0` removes TLS from the MQTT page: no row, no mention of
   8883 in the port hint, and a submitted `tls` parameter ignored. A stored flag
   is left alone, not cleared.

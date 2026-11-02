@@ -252,6 +252,9 @@ function qPump(){while((!QMAX||qn<QMAX)&&qq.length){qn++;qq.shift()();}}
 function qGet(url,done){qq.push(function(){var x=new XMLHttpRequest(),fin=false;
  x.onreadystatechange=function(){if(x.readyState!=4||fin)return;fin=true;qn--;qPump();done(x);};
  x.open('GET',url,true);
+ // Says "a script asked, and will retry": the device refuses these first when
+ // short of memory (CONFIG_PORTAL_MIN_FREE_BLOCK), pages and assets only later.
+ x.setRequestHeader('X-Requested-With','XMLHttpRequest');
  x.timeout=5000;   // set after open(): older browsers reject it before
  x.send();});qPump();}
 // A 503 is the device saying it is short of memory just now (CONFIG_PORTAL_
@@ -639,7 +642,17 @@ function fvCheckStatic(ip,mask,gw,dns){
 // The Logout link is injected into the menu by buildMenu() and shown only when
 // /chkauth reports an authenticated session.
 // -----------------------------------------------------------------------------
+// The guard at the top: every page's head loads /common.js (and the form pages
+// /fields.js) before the body starts, so here it is known whether they arrived
+// whole. One that did not — refused for want of memory, or cut off by a stalled
+// connection — leaves a page that looks loaded and does nothing; the browser
+// would not fetch it again by itself. Reloads at most three times in a row,
+// counted in sessionStorage, so a device that stays short is not hammered.
 #define CONFIG_PORTAL_HEADER \
+"<script>(function(){var k='acpReload',n=0,s;try{s=sessionStorage;n=+s[k]||0;}catch(e){}" \
+"var bad=!window.initCommon||(document.querySelector('script[src=\"/fields.js\"]')&&!window.fvRead);" \
+"if(!bad){if(s)try{s.removeItem(k);}catch(e){}return;}" \
+"if(n<3){if(s)try{s[k]=n+1;}catch(e){}setTimeout(function(){location.reload();},1500);}})();</script>" \
 "<div class=\"header\"><h1><span id=\"project_name\">&nbsp;</span></h1>" \
 "<div class=\"menu\" id=\"menu\"><noscript><a href=\"/\">Status</a></noscript></div>" \
 "<a href=\"/logout\" id=\"logout\" class=\"logout\" style=\"display:none\">Logout</a></div>"
