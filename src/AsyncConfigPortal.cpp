@@ -45,6 +45,16 @@ void AsyncConfigPortal::begin(HttpDigestAuth& auth) {
     //    every route, whoever registered it. Upload data reaches its handler
     //    before this runs, so the upload handlers check each chunk as well.
     _server.addMiddleware([this](AsyncWebServerRequest* req, ArMiddlewareNext next) {
+#if CONFIG_PORTAL_MIN_FREE_BLOCK > 0
+        // Short of memory: refuse a read at once rather than let its handler
+        // build a response the heap cannot hold (detail/load_config.h). Reads
+        // only — a POST is something the user did and is waiting for, and an
+        // upload has already been written by the time this runs.
+        if (!_changesState(req) && _largestFreeBlock() < CONFIG_PORTAL_MIN_FREE_BLOCK) {
+            _refuseLowHeap(req);
+            return;
+        }
+#endif
         if (_changesState(req) && !originAllowed(req)) {
             req->send(403, "text/plain",
                       "Refused: the request did not come from this device's own pages "
@@ -571,6 +581,32 @@ void AsyncConfigPortal::setProject(const char* name, const char* version,
 // -----------------------------------------------------------------------------
 // Auth helper
 // -----------------------------------------------------------------------------
+
+#if CONFIG_PORTAL_MIN_FREE_BLOCK > 0
+uint32_t AsyncConfigPortal::_largestFreeBlock() {
+#if defined(ARDUINO_ARCH_ESP8266)
+    return ESP.getMaxFreeBlockSize();
+#else
+    return ESP.getMaxAllocHeap();
+#endif
+}
+
+/// The 503, and a line in the log at most every ten seconds: a page load that
+/// meets a short heap sends several requests, and logging each would only
+/// spend more of what is short.
+void AsyncConfigPortal::_refuseLowHeap(AsyncWebServerRequest* req) {
+    _lowHeapRefused++;
+    const uint32_t now = millis();
+    if (now - _lowHeapLoggedMs >= 10000) {
+        logf(LogLevel::Warn, "web",
+             PSTR("short of memory (largest block %lu B): %lu request(s) answered 503"),
+             (unsigned long)_largestFreeBlock(), (unsigned long)_lowHeapRefused);
+        _lowHeapLoggedMs = now;
+        _lowHeapRefused  = 0;
+    }
+    req->send(503);
+}
+#endif
 
 bool AsyncConfigPortal::_changesState(AsyncWebServerRequest* req) {
     const WebRequestMethod m = (WebRequestMethod)req->method();

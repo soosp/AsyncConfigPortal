@@ -9,6 +9,7 @@
 #include <ESPAsyncWebServer.h>
 #include <HttpDigestAuth.h>
 #include "detail/hosted_config.h"   // CONFIG_PORTAL_HOSTED_OTA
+#include "detail/load_config.h"     // CONFIG_PORTAL_MIN_FREE_BLOCK
 #if CONFIG_PORTAL_HOSTED_OTA
 #  include <mutex>
 #  include <esp_timer.h>
@@ -1169,6 +1170,14 @@ private:
     /** @brief The restart itself, after the flush delay: the callback, then
      *  ESP.restart(). */
     void _restartNow();
+
+#if CONFIG_PORTAL_MIN_FREE_BLOCK > 0
+    // ---- Low-heap guard (detail/load_config.h) ------------------------------
+    static uint32_t _largestFreeBlock();
+    void _refuseLowHeap(AsyncWebServerRequest* req);
+    uint32_t _lowHeapRefused  = 0;   ///< refused since the last log line
+    uint32_t _lowHeapLoggedMs = 0;
+#endif
 
 #if CONFIG_PORTAL_HOSTED_OTA
     // ---- ESP-Hosted co-processor (AsyncConfigPortalHosted.cpp) --------------

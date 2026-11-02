@@ -9,6 +9,23 @@ and this project adheres to
 
 ## [Unreleased]
 
+### Fixed
+
+- ESP8266: a page load could exhaust the heap and leave the device accepting no
+  new connections, while an MQTT session it already had carried on. Every
+  request in flight holds about 2.5–3 kB there, and a page sent its menu,
+  project, login and data requests together: measured with a full application,
+  the Other page took the free heap from 21 kB to 4.5 kB. A page's own requests
+  now go out one at a time (`CONFIG_PORTAL_SERIALIZED_JS_REQUESTS`, on by
+  default on ESP8266), and a GET that arrives while the largest free block is
+  under 6 kB is answered 503 before its handler builds anything
+  (`CONFIG_PORTAL_MIN_FREE_BLOCK`), which `getJSON()` retries. Both are off on
+  ESP32
+- A failed `getJSON()` request counted twice towards the "Device not
+  responding" banner — once at `readyState` 4 with status 0, once in `onerror`
+  or `ontimeout` — so a single lost request raised it, against the documented
+  two. It now counts once, on every platform
+
 ## [0.18.0] - 2026-10-28
 
 ### Added

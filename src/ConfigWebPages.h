@@ -2,6 +2,7 @@
 
 #include <Arduino.h>
 #include "detail/hosted_config.h"   // CONFIG_PORTAL_HOSTED_OTA: the co-processor section
+#include "detail/load_config.h"     // CONFIG_PORTAL_SERIALIZED_JS_REQUESTS
 
 /**
  * @file ConfigWebPages.h
@@ -235,21 +236,36 @@ function netMark(ok){
  if(++netFails>=2&&!netDown){netDown=true;netBanner();}
 }
 function netIsDown(){return netDown;}
-function getJSON(url,cb){var x=new XMLHttpRequest();
-x.onreadystatechange=function(){
- if(this.readyState!=4)return;
- // status 0 at readyState 4 means the request never reached anyone.
- netMark(this.status!==0);
- if(this.status==200){
-  var o;try{o=JSON.parse(this.responseText);}catch(e){return;}
+)JS"
+// --- Request queue -----------------------------------------------------------
+// The requests a page's script makes go out QMAX at a time, the rest in order
+// as each one ends: 1 with CONFIG_PORTAL_SERIALIZED_JS_REQUESTS (on by default
+// on ESP8266, detail/load_config.h), 0 = no limit. A request ends at readyState
+// 4 whatever happened — answer, error, timeout — so a lost one costs its
+// timeout, not the queue.
+"var QMAX=" ACP_DETAIL_JS_QMAX ";"
+R"JS(
+var qn=0,qq=[];
+function qPump(){while((!QMAX||qn<QMAX)&&qq.length){qn++;qq.shift()();}}
+// qGet(url, done): GET url through the queue; done(xhr) once it has ended,
+// with xhr.status 0 when it never reached the device.
+function qGet(url,done){qq.push(function(){var x=new XMLHttpRequest(),fin=false;
+ x.onreadystatechange=function(){if(x.readyState!=4||fin)return;fin=true;qn--;qPump();done(x);};
+ x.open('GET',url,true);
+ x.timeout=5000;   // set after open(): older browsers reject it before
+ x.send();});qPump();}
+// A 503 is the device saying it is short of memory just now (CONFIG_PORTAL_
+// MIN_FREE_BLOCK): it is alive, and the same request a second later is likely
+// to be served.
+function getJSON(url,cb,tries){qGet(url,function(x){
+ // status 0 means the request never reached anyone.
+ netMark(x.status!==0);
+ if(x.status==503&&(tries|0)<3){setTimeout(function(){getJSON(url,cb,(tries|0)+1);},1000);return;}
+ if(x.status==200){
+  var o;try{o=JSON.parse(x.responseText);}catch(e){return;}
   cb(o);
  }
-};
-x.onerror=function(){netMark(false);};
-x.ontimeout=function(){netMark(false);};
-x.open('GET',url,true);
-x.timeout=5000;   // set after open(): older browsers reject it before
-x.send();}
+});}
 function buildMenu(items){var m=ID('menu');if(!m)return;
 m.innerHTML=items.map(function(i){return '<a href="'+i.path+'">'+i.label+'</a>';}).join('');
 heartbeat();}
@@ -272,20 +288,12 @@ document.title=o.project_name;}
 // to be called to decide whether to show the Logout link, so one request serves
 // both purposes. Its status code answers the auth question; merely having a
 // status code answers the liveness question.
-function heartbeat(){
- var x=new XMLHttpRequest();
- x.onreadystatechange=function(){
-  if(this.readyState!=4)return;
-  netMark(this.status!==0);
-  var e=ID('logout');
-  if(e)e.style.display=(this.status==200)?'block':'none';
- };
- x.onerror=function(){netMark(false);};
- x.ontimeout=function(){netMark(false);};
- x.open('GET','/chkauth',true);
- x.timeout=5000;
- x.send();
-}
+function heartbeat(){qGet('/chkauth',function(x){
+ netMark(x.status!==0);
+ var e=ID('logout');
+ // A 503 says nothing about the session: leave the link as it was.
+ if(e&&x.status!=503)e.style.display=(x.status==200)?'block':'none';
+});}
 function initCommon(){getJSON('/menu',buildMenu);getJSON('/project',setProject);
  heartbeat();setInterval(heartbeat,10000);}
 )JS"
