@@ -1143,33 +1143,44 @@ void AsyncConfigPortal::_registerOtherPage() {
                 }
             }
 
-            // Scan this chunk for the marker (until found). To catch a marker
-            // straddling a chunk boundary, prepend the tail we kept from the
-            // previous chunk and scan the joined region too.
-            if (!_otaMarkerFound) {
+            // Scan for a marker that matches the running firmware, and scan ON
+            // past one that does not: an image may carry stray magic bytes —
+            // the comparison constant of a scanner built before 0.18.3 is
+            // exactly that — and whichever the linker placed first would
+            // otherwise shadow the real marker (2026-11-04: every OTA of such
+            // an image refused with "wrong project (project= board=)"). Each
+            // candidate is logged; the verdict at the end is the best seen.
+            // A marker straddling a chunk boundary is caught by scanning the
+            // joined [kept tail][start of this chunk] region first.
+            if (!_otaMarkerMatch) {
                 FirmwareMarker fm;
-                if (fwMarkerFind(data, len, fm)) {
-                    _otaMarkerFound = true;
-                    FwMatch m = fwMarkerCheck(fm);
-                    _otaMarkerMatch = (m == FwMatch::Ok);
-                    logf(LogLevel::Info, "ota", PSTR("marker: %s (project=%s board=%s)"),
-                          fwMatchStr(m), fm.project, fm.board);
-                } else if (_otaTailLen > 0) {
-                    // Check the boundary: [kept tail][start of this chunk].
+                if (_otaTailLen > 0) {
                     uint8_t join[OTA_TAIL_KEEP + sizeof(FirmwareMarker)];
                     size_t head = (len < sizeof(FirmwareMarker))
                                 ? len : sizeof(FirmwareMarker);
                     memcpy(join, _otaTail, _otaTailLen);
                     memcpy(join + _otaTailLen, data, head);
-                    if (fwMarkerFind(join, _otaTailLen + head, fm)) {
+                    size_t at = 0;
+                    while (!_otaMarkerMatch &&
+                           fwMarkerFindFrom(join, _otaTailLen + head, at, fm)) {
                         _otaMarkerFound = true;
                         FwMatch m = fwMarkerCheck(fm);
                         _otaMarkerMatch = (m == FwMatch::Ok);
                         logf(LogLevel::Info, "ota", PSTR("marker (boundary): %s"), fwMatchStr(m));
+                        at += 1;
                     }
                 }
+                size_t at = 0;
+                while (!_otaMarkerMatch && fwMarkerFindFrom(data, len, at, fm)) {
+                    _otaMarkerFound = true;
+                    FwMatch m = fwMarkerCheck(fm);
+                    _otaMarkerMatch = (m == FwMatch::Ok);
+                    logf(LogLevel::Info, "ota", PSTR("marker: %s (project=%s board=%s)"),
+                          fwMatchStr(m), fm.project, fm.board);
+                    at += 1;
+                }
                 // Keep the tail of this chunk for the next boundary check.
-                if (!_otaMarkerFound) {
+                if (!_otaMarkerMatch) {
                     size_t keep = (len < OTA_TAIL_KEEP) ? len : OTA_TAIL_KEEP;
                     memcpy(_otaTail, data + (len - keep), keep);
                     _otaTailLen = keep;

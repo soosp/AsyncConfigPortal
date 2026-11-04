@@ -17,14 +17,15 @@ SANFLAGS := -fsanitize=address,undefined -fno-omit-frame-pointer
 HARNESS := json_harness
 ORIGIN  := origin_harness
 RESULT  := result_harness
+MARKER  := marker_harness
 
-.PHONY: all run origin result san clean
+.PHONY: all run origin result marker san clean
 all: run
 
 $(HARNESS): json_harness.cpp
 	$(CXX) $(CXXFLAGS) $(INCLUDES) $< -o $@
 
-run: $(HARNESS) origin result
+run: $(HARNESS) origin result marker
 	@echo "------------------------------------------------------------"
 	@echo "JsonReadUtils suite:"
 	@./$(HARNESS)
@@ -45,6 +46,16 @@ result: $(RESULT)
 	@echo "Result answer suite:"
 	@./$(RESULT)
 
+$(MARKER): marker_harness.cpp ../src/FirmwareMarker.h
+	$(CXX) $(CXXFLAGS) $(INCLUDES) $< -o $@
+
+marker: $(MARKER)
+	@echo "------------------------------------------------------------"
+	@echo "FirmwareMarker suite:"
+	@./$(MARKER)
+	@echo "plain magic occurrences in the binary (must be 1, g_fwMarker):"
+	@grep -c FWMARK01 $(MARKER)
+
 # The parser eats uploaded, untrusted input, so the sanitized run is the one
 # that actually justifies hand-writing it rather than pulling in a dependency.
 san: json_harness.cpp
@@ -54,4 +65,4 @@ san: json_harness.cpp
 	@./$(HARNESS)_san
 
 clean:
-	@rm -f $(HARNESS) $(HARNESS)_san $(HARNESS).exe $(HARNESS)_san.exe $(ORIGIN) $(ORIGIN).exe $(RESULT) $(RESULT).exe
+	@rm -f $(HARNESS) $(HARNESS)_san $(HARNESS).exe $(HARNESS)_san.exe $(ORIGIN) $(ORIGIN).exe $(RESULT) $(RESULT).exe $(MARKER) $(MARKER).exe

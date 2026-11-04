@@ -9,6 +9,38 @@ and this project adheres to
 
 ## [Unreleased]
 
+## [0.18.3] - 2026-11-05
+
+### Fixed
+
+- OTA: the marker scanner's own comparison constant was a plain `FWMARK01`
+  byte run in `.rodata` — a decoy marker with empty fields in every image
+  that carries the scanner. The scan stopped at the first magic found, so
+  whichever of the decoy and the real marker the linker placed first decided
+  the update: with the decoy first, every OTA of that image was refused
+  (`marker: wrong project (project= board=)`, then
+  `rejected: no matching marker`), seen 2026-11-04 on an ESP32 debug build.
+  Two-sided fix: the signature is now stored XOR-ed and decoded where
+  needed, so the plain bytes exist only inside real markers (images built
+  with this version scan correctly under old scanners too, wherever the
+  linker puts things); and the scanner now judges every candidate and scans
+  on past one that does not match, so images built with old versions — whose
+  decoy is still in them — update cleanly as well. A wrong or missing marker
+  is still refused exactly as before. New host suite (`make marker`) drives
+  the scan across decoys, orders and offsets, and greps its own binary to
+  prove the plain magic occurs in it once: `g_fwMarker` and nothing else
+
+### Added
+
+- The marker's reserved field now carries a CRC-32 of the marker's other
+  bytes, computed at compile time, so a scan candidate is self-validating:
+  magic bytes whose CRC does not check are logged as
+  `not a marker (bad checksum)` and scanned past, instead of being reported
+  as a marker with wrong, often empty, fields. A marker whose field reads 0
+  is one from before this version, which never wrote the field, and is taken
+  on its project and board exactly as before — so old images still update,
+  and old scanners, which never read the field, take new images unchanged
+
 ## [0.18.2] - 2026-11-02
 
 ### Fixed
